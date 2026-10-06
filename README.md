@@ -1,0 +1,59 @@
+# 图书带货工作台
+
+正式网址：https://lipa-book-commerce.lipaliu514.workers.dev
+
+2026-10-06首版，独立Cloudflare Worker与D1部署。项目访问码单独保存在本机`access.credentials.json`，不进入Git或前端。无需ChatGPT账号，进入资料工作区需要项目访问码。
+
+## 已实现
+
+- 工作概览、选品库、对标案例、内容工作台、制作队列、经营复盘、数据与设置。
+- 真实历史资料：112个商品名称组、190份非教辅候选机器正文、7组有可用关联SKU成交观察。仍待人工逐条核实商品版本；名称组不是独立ISBN数量。
+- 关键词、方向、收藏、成交画像与最新30天快照筛选；原视频和灰豚商品来源入口；完整机器正文和已有结构分析。
+- Excel/CSV/JSON导入、教辅与知识服务强制过滤、重复文件防止重复入库；按视频ID保留参考与正文关联。
+- 四种结构草稿模板；编辑、服务端保存、待素材队列、文本导出和任务归档。
+- 按任务录入经营观察，未知指标保留空值；贡献栏只取各任务最新观察，避免把多个累计时点直接相加。
+- 项目访问码、签名HttpOnly会话、同源写请求、登录失败限制。研究正文不公开给未登录访客。
+- 每天上海09:00的Cloudflare Cron；当前仅记录近30天数据入口检查与待采集状态。每日快照除汇总信息外，也保留当时的参考指标，不由下一次更新覆盖。
+
+## 尚未接入
+
+灰豚自动拉取接口、本机采集执行器、AI写作模型、TTS、视频渲染、抖音发布与经营数据自动回传。现在的生成是结构模板草稿，不是已调用AI模型；队列不会伪造完成视频。
+
+目前真实资料来自2026-10-04近60天研究。本版将其标为历史资料；新选品入口只接受操作者确认的近30天导出。调度上线不等于自动采集已上线。导出文件自身未携带查询口径时，仍需在灰豚页面确认近30天选择。
+
+## 开发与部署
+
+```sh
+npm ci
+python3 scripts/prepare_seed.py
+npm test
+npm run build
+npx wrangler d1 execute lipa-book-commerce-db --local --file schema.sql
+npx wrangler d1 execute lipa-book-commerce-db --local --file seed.sql
+npm run dev
+```
+
+本机`.dev.vars`需要APP_PASS与SESSION_SECRET，真实值不在此文件中。初始化远端数据库同样执行schema与seed但使用`--remote`。已有数据库不能按新建环境任意清空。部署使用`npm run deploy`，线上秘密配置通过Wrangler secret stdin提交。
+
+灰豚原文件、媒体、Obsidian原库及外接盘不会因网站部署而删除。网站只部署非教辅候选正文与必要元数据，未把约15GB原始视频上传到云端。
+
+## 验证范围
+
+- 9项领域测试：每日/30天规则、教辅伪装、非应试知识保留、服务排除、真实190条候选范围、未知销量与结构草稿边界。
+- 本地API：匿名数据保护、跨来源请求拒绝、登录、教辅任务拒绝、60天文件拒绝、草稿保存/状态、假成片状态拒绝、导入过滤与重复防护。
+- 实际浏览器：登录、搜索筛选、商品详情、原正文阅读、生成草稿、加入队列、手机设置布局；测试Excel读取2条、候选1条、排除1条，未将测试数据部署为真实榜单。
+- 正式站点：普通无Cookie/Authorization的Node HTTP访问首页/JS/CSS/健康接口均200，数据接口401；正式浏览器登录与真实资料显示通过。
+- Python默认User-Agent曾被Cloudflare返回1010；已另外验证普通Node HTTP和实际浏览器。未验证所有中国大陆网络、微信或全部地区。
+
+验证记录与截图在本机`verification/`。界面是已实现首版，审美尚待用户评审。
+
+## 设计与源码
+
+视觉规则见VI.md，代码为独立实现，未复用未定位到的Mira源码。参考设计板只借鉴对象、筛选和当前内容的关系，原品牌图片与代码未复制。
+
+## 技术参考
+
+- Cloudflare静态资源与Worker绑定：https://developers.cloudflare.com/workers/static-assets/binding/
+- Cloudflare Cron（UTC配置）：https://developers.cloudflare.com/workers/configuration/cron-triggers/
+- D1 Wrangler命令：https://developers.cloudflare.com/d1/wrangler-commands/
+- Excel读取使用read-excel-file，许可证与依赖版本见package-lock.json。

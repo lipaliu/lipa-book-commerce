@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {evaluateScope,normalizeRow,makeDraft,salesLower,POLICY} from '../server/domain.mjs';
+test('the daily 30-day policy and mandatory teaching exclusion cannot drift',()=>{assert.equal(POLICY.refreshIntervalDays,1);assert.equal(POLICY.lookbackDays,30);assert.equal(POLICY.excludeTeaching,true);});
+test('teaching and exam names remain blocked when caller spoofs a safe category',()=>{for(const title of ['同步训练练习册','高考真题汇编','花生十三行测600题','小学三年级语文教材','一课一练试卷','儿童控笔描红'])assert.equal(evaluateScope(title,'文学历史').allowed,false,title);});
+test('non-exam knowledge, family reading and practical books are not blanket excluded',()=>{for(const title of ['数学之美','点醒孩子的学习60封信','漫画讲透易经','你缺失的那门计算机课','中国神仙','国际儿童成长小说'])assert.equal(evaluateScope(title).allowed,true,title);});
+test('known non-book services cannot become merchandise',()=>assert.equal(evaluateScope('无印英语高阶实战其他知识服务').allowed,false));
+test('schoolware hidden in the old literature or magazine classification is still blocked',()=>{for(const title of ['卷霸高一第一次月考领跑卷','幼小衔接看图说话写作训练','读者校园版作文素材开学季','成人钢琴速成教材'])assert.equal(evaluateScope(title,'文学历史').allowed,false,title);});
+test('unknown sales values remain unknown and intervals are not summed',()=>{assert.equal(salesLower(''),null);assert.equal(salesLower('25w-50w'),250000);});
+test('Huitun export columns normalize without borrowing title as body',()=>{const row=normalizeRow({'关联商品':'漫画易经','视频ID':'7671482275825881209','播主':'参考作者','发布时间':'2026-10-04','视频标题':'这是标题'});assert.equal(row.video_id,'7671482275825881209');assert.equal(row.body,'');assert.equal(row.scope.allowed,true);});
+test('draft does not fabricate book pages, prices, or ISBN',()=>{const draft=makeDraft({product:'漫画易经'},{audience:'初学者',task:'看懂一个概念'});assert.match(draft,/待补真实证据/);assert.match(draft,/购买信息待核/);assert.throws(()=>makeDraft({product:'一本书'},{}));});
+test('all shipped records respect the same server-side scope rule',async()=>{const rows=JSON.parse(await readFile(new URL('../seed-audit.json',import.meta.url)));for(const r of rows)assert.equal(evaluateScope(r.product,r.category).allowed,true,r.id+' '+r.product);assert.ok(rows.length>100);});
