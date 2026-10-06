@@ -32,5 +32,5 @@ export function makeDraft(sample,brief) {
   const organization={tool:'先呈现一个真实操作问题，再完整演示解决过程，最后展示本书如何查用同类问题。',classic:'先提出一个读者困惑，解释一个已核实概念，用原创例子连接现实，再展示本版原文、注释或图解。',gift:'先明确送给谁或怎样自用，展示包装、规格与实际细节，再解释这个版本为什么适合该场景。',reading:'先提出一个阅读问题，展示真实章节与内容组织，再用自己的阅读判断解释适合什么读者。'}[brief.template||'tool'];
   if([task,audience,evidence,String(brief.opener||'')].some(x=>x.length>3000))throw new Error('单个简报字段请控制在3000字以内');
   const opener=String(brief.opener||`如果你也遇到“${task}”，选书时可以先看它怎样解释这个问题。`).trim();
-  return `${opener}\n\n这条内容讲给${audience}，围绕“${task}”展开。\n\n制作顺序：${organization}\n\n${evidence ? `演示段：${evidence}。请核对这段材料确实属于当前商品版本，再用自己的示范解释。` : '【待补真实证据】选一页实际书页、一个可复现操作或一个实物细节，在这里展示它怎样回应这个问题。'}\n\n商品承接：本次候选是《${title}》。补齐ISBN、版本和对应页码后，讲清这个版本适合谁，以及观众如何继续查阅。\n\n【购买信息待核】按当前商品页确认价格、佣金与规格后填写；不承诺未经验证的效果。`;
+  return `${opener}\n\n这条内容讲给${audience}，围绕“${task}”展开。\n\n制作顺序：${organization}\n\n${evidence ? `演示段：${evidence}。请核对这段材料确实属于当前商品版本，再用自己的示范解释。` : `【待补真实证据】${brief.materialPlan||'选一页实际书页、一个可复现操作或一个实物细节'}。取得并核实后，在这里展示它怎样回应这个问题。`}\n\n商品承接：本次候选是《${title}》。补齐ISBN、版本和对应页码后，讲清这个版本适合谁，以及观众如何继续查阅。\n\n【购买信息待核】按当前商品页确认价格、佣金与规格后填写；不承诺未经验证的效果。`;
 }

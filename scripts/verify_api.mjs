@@ -14,9 +14,12 @@ r=await request('samples/D60-0001');assert.equal(r.res.status,404);checked.push(
 r=await request('jobs','POST',{sampleId:'D60-0001',brief:{template:'tool',audience:'人群',task:'任务'}});assert.equal(r.res.status,400);checked.push('teaching task cannot be created');
 r=await request('import','POST',{rows:[{product:'漫画易经',account:'参考作者',published_at:'2026-10-04'}],windowDays:60,asOf:'2026-10-04'});assert.equal(r.res.status,400);checked.push('60-day upload cannot masquerade as the 30-day selection feed');
 if(base.includes('127.0.0.1')){
- r=await request('jobs','POST',{sampleId:'D60-0045',brief:{template:'tool',audience:'职场电脑操作初学者',task:'按目录查找一种真实操作方法',evidence:'【QA】尚未取得样书，仅测试结构工作台'}});assert.equal(r.res.status,200);const id=r.payload.id;assert.match(r.payload.script,/购买信息待核/);checked.push('draft creation saved to D1');
+ r=await request('samples/D60-0045');const o=r.payload.briefOptions;assert.equal(o.ready,true);
+ const brief={sourceVersion:o.sourceVersion,genderId:o.audience.genders[1].id,ageId:o.audience.ages[1].id,taskId:o.tasks[0].id,templateId:o.templates[0].id,materialId:o.materials[0].id,openerId:'free',freeOpener:'【QA】先看真实目录。'};
+ r=await request('jobs','POST',{sampleId:'D60-0045',brief:{audience:'虚构职业',template:'tool',task:'任务'}});assert.equal(r.res.status,400);checked.push('raw free audience cannot bypass SKU evidence');
+ r=await request('jobs','POST',{sampleId:'D60-0045',brief});assert.equal(r.res.status,200);const id=r.payload.id;assert.match(r.payload.script,/购买信息待核/);checked.push('draft creation saved to D1');
  r=await request('jobs/'+id,'PATCH',{script:r.payload.script+'\n【QA】编辑保存核对',status:'awaiting_assets'});assert.equal(r.res.status,200);
- r=await request('bootstrap');assert.ok(r.payload.jobs.some(x=>x.id===id&&x.status==='awaiting_assets'&&x.script.includes('编辑保存核对')));checked.push('editing and queued status persisted');
+ r=await request('bootstrap');assert.ok(r.payload.jobs.some(x=>x.id===id&&x.status==='awaiting_assets'&&x.script.includes('编辑保存核对')));const saved=JSON.parse(r.payload.jobs.find(x=>x.id===id).brief_json);assert.equal(saved.audienceEvidence.gender.percent,70.43);assert.equal(saved.contentEvidence.opener.evidenceType,'user_supplied_hypothesis');checked.push('editing, evidence and queued status persisted');
  r=await request('jobs/'+id,'PATCH',{status:'completed'});assert.equal(r.res.status,400);checked.push('unconnected render cannot be marked complete');
  r=await request('jobs/'+id,'PATCH',{status:'archived'});assert.equal(r.res.status,200);
  const input={rows:[{'关联商品':'【QA导入核对】文化散文集','播主':'QA作者','发布时间':'2026-10-06 00:01:00'},{'关联商品':'【QA排除】高一月考真题试卷','播主':'QA作者','发布时间':'2026-10-06 00:01:00'}],windowDays:30,asOf:'2026-10-06'};

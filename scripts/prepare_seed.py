@@ -7,7 +7,7 @@ scope_passed=json.loads(subprocess.check_output(['node','--input-type=module','-
 original=json.loads((vault/'00-原始数据/近60天-20261004/records.json').read_text())
 by_id={r['记录编号']:r for r in original}
 profiles=json.loads((vault/'00-原始数据/近60天-20261004/商品成交画像-近60天榜单核对.json').read_text())
-buyers={r['record']:{k:r.get(k) for k in ['product_id','source_url','profile_type','observed_at','profile_period','eight_segments','summary','available_distribution','source_type','observed_price','public_commission_pct']} for r in profiles}
+buyers={r['record']:{k:r.get(k) for k in ['record','selected_control_verified','sample_size','gender_distribution','age_distribution','product_id','source_url','profile_type','observed_at','profile_period','eight_segments','summary','available_distribution','source_type','observed_price','public_commission_pct']} for r in profiles}
 def q(value):
     if value is None:return 'NULL'
     return "'"+str(value).replace("'","''")+"'"

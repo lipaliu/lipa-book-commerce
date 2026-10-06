@@ -1,3 +1,4 @@
+import {buildBriefOptions,resolveBriefSelections} from './evidence.mjs';
 import {POLICY,evaluateScope,normalizeRow,salesLower,makeDraft,templates} from './domain.mjs';
 const enc=new TextEncoder();
 const now=()=>new Date().toISOString();
@@ -11,7 +12,7 @@ function cookie(req,value,maxAge){return `book_session=${value}; Path=/; HttpOnl
 async function body(req){if(Number(req.headers.get('content-length')||0)>6_000_000)throw new Error('文件过大，请控制在6MB以内');const text=await req.text();if(text.length>6_000_000)throw new Error('文件过大');return JSON.parse(text);}
 async function results(db,sql,...args){return (await db.prepare(sql).bind(...args).all()).results;}
 async function visibleSamples(db){return (await results(db,'SELECT * FROM samples')).filter(r=>evaluateScope(r.product,r.category).allowed);}
-function summarize(samples,favorites){const groups=new Map();for(const r of samples){if(!groups.has(r.product_key))groups.set(r.product_key,{key:r.product_key,product:r.product,category:r.category,samples:[],buyer:null,sourceWindows:[],favorite:favorites.has(r.product_key)});const p=groups.get(r.product_key);p.samples.push({id:r.id,account:r.account,salesBand:r.sales_band,videoId:r.video_id,hasBody:!!r.body,publishedAt:r.published_at,snapshotId:r.snapshot_id});if(r.buyer_json)p.buyer=JSON.parse(r.buyer_json);if(!p.sourceWindows.includes(r.source_window))p.sourceWindows.push(r.source_window);}
+function summarize(samples,favorites){const groups=new Map();for(const r of samples){if(!groups.has(r.product_key))groups.set(r.product_key,{key:r.product_key,product:r.product,category:r.category,samples:[],buyer:null,sourceWindows:[],favorite:favorites.has(r.product_key)});const p=groups.get(r.product_key);p.samples.push({id:r.id,account:r.account,salesBand:r.sales_band,videoId:r.video_id,hasBody:!!r.body,buyerAvailable:buildBriefOptions(r).ready,publishedAt:r.published_at,snapshotId:r.snapshot_id});if(r.buyer_json)p.buyer=JSON.parse(r.buyer_json);if(!p.sourceWindows.includes(r.source_window))p.sourceWindows.push(r.source_window);}
 return [...groups.values()].map(p=>{p.samples.sort((a,b)=>(salesLower(b.salesBand)||0)-(salesLower(a.salesBand)||0));return {...p,identity:p.buyer?.product_id?'已匹配商品ID，ISBN待核':'按商品名称分组，SKU待核',bestSalesBand:p.samples[0]?.salesBand||'未知'};}).sort((a,b)=>(salesLower(b.bestSalesBand)||0)-(salesLower(a.bestSalesBand)||0));}
 async function syncRun(env,source='manual') {
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date());
@@ -40,7 +41,7 @@ async function api(req,env) {
   return json({policy:POLICY,products,currentSnapshotId,stats:{products:products.length,samples:samples.length,bodies:samples.filter(x=>x.body).length,buyers:products.filter(x=>x.buyer?.available_distribution).length},snapshots,jobs:await results(env.DB,'SELECT * FROM jobs ORDER BY updated_at DESC'),syncRuns:await results(env.DB,'SELECT * FROM sync_runs ORDER BY requested_at DESC LIMIT 20'),integration:{huitun:'import_ready',automaticFetch:'not_connected',textGeneration:'structure_template',voice:'not_connected',render:'not_connected',settlement:'import_pending'}});
  }
  if(path.startsWith('/api/samples/')&&method==='GET'){
-  const r=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(decodeURIComponent(path.split('/').pop())).first();if(!r||!evaluateScope(r.product,r.category).allowed)return fail('该参考不在非教辅候选范围',404);return json({...r,buyer:r.buyer_json?JSON.parse(r.buyer_json):null});
+  const r=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(decodeURIComponent(path.split('/').pop())).first();if(!r||!evaluateScope(r.product,r.category).allowed)return fail('该参考不在非教辅候选范围',404);return json({...r,briefOptions:buildBriefOptions(r),buyer:r.buyer_json?JSON.parse(r.buyer_json):null});
  }
  if(path==='/api/favorites'&&method==='POST'){const {key,active}=await body(req);const r=await env.DB.prepare('SELECT product FROM samples WHERE product_key=? LIMIT 1').bind(String(key)).first();if(!r)return fail('商品不存在',404);await env.DB.prepare(active?'INSERT OR IGNORE INTO favorites(product_key,created_at) VALUES(?,?)':'DELETE FROM favorites WHERE product_key=?').bind(...(active?[key,now()]:[key])).run();return json({ok:true});}
  if(path==='/api/sync'&&method==='POST')return json(await syncRun(env));
@@ -62,14 +63,18 @@ async function api(req,env) {
  }
  if(path==='/api/jobs'&&method==='POST'){
   const input=await body(req);const s=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(String(input.sampleId)).first();if(!s||!evaluateScope(s.product,s.category).allowed)return fail('教辅或无效商品不能进入制作');
-  const brief=input.brief||{};if(!templates[brief.template])return fail('请选择有效制作模板');const script=makeDraft(s,brief);const stamp=now(),id=crypto.randomUUID();
+  const brief=resolveBriefSelections(s,input.brief||{});const script=makeDraft(s,brief);const stamp=now(),id=crypto.randomUUID();
   await env.DB.prepare('INSERT INTO jobs(id,sample_id,product_key,title,status,template,brief_json,script,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id,s.id,s.product_key,s.product,'draft',brief.template,JSON.stringify(brief),script,stamp,stamp).run();return json({id,script,status:'draft'});
  }
  if(path.startsWith('/api/jobs/')&&method==='PATCH'){
   const id=path.split('/').pop(),input=await body(req);const j=await env.DB.prepare('SELECT * FROM jobs WHERE id=?').bind(id).first();if(!j)return fail('任务不存在',404);
   if(input.status && !['draft','awaiting_assets','archived'].includes(input.status))return fail('配音和渲染尚未接入，不能标记成片完成');
-  const s=await env.DB.prepare('SELECT product,category FROM samples WHERE id=?').bind(j.sample_id).first();if(!s||!evaluateScope(s.product,s.category).allowed)return fail('该商品不在制作范围');
-  await env.DB.prepare('UPDATE jobs SET script=?,status=?,updated_at=? WHERE id=?').bind(String(input.script??j.script).slice(0,60000),input.status||j.status,now(),id).run();return json({ok:true});
+  const s=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(j.sample_id).first();if(!s||!evaluateScope(s.product,s.category).allowed)return fail('该商品不在制作范围');
+  if(input.sampleId&&input.sampleId!==j.sample_id)return fail('任务与当前商品不一致');
+  let brief=JSON.parse(j.brief_json);
+  if(input.brief)brief=resolveBriefSelections(s,input.brief);
+  if(input.status==='awaiting_assets')brief=resolveBriefSelections(s,brief.selections||{});
+  await env.DB.prepare('UPDATE jobs SET script=?,status=?,template=?,brief_json=?,updated_at=? WHERE id=?').bind(String(input.script??j.script).slice(0,60000),input.status||j.status,brief.template||j.template,JSON.stringify(brief),now(),id).run();return json({ok:true});
  }
  if(path==='/api/experiments'&&method==='POST'){
   const input=await body(req);if(!input.jobId)return fail('请选择制作任务');const j=await env.DB.prepare('SELECT id FROM jobs WHERE id=?').bind(input.jobId).first();if(!j)return fail('任务不存在');
