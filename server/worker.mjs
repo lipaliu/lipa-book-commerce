@@ -5,10 +5,6 @@ const now=()=>new Date().toISOString();
 function json(data,status=200,headers={}) { return new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers}}); }
 function fail(message,status=400){return json({error:message},status);}
 async function hash(text){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(text)))].map(x=>x.toString(16).padStart(2,'0')).join('');}
-async function sign(value,secret){const key=await crypto.subtle.importKey('raw',enc.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);return [...new Uint8Array(await crypto.subtle.sign('HMAC',key,enc.encode(value)))].map(x=>x.toString(16).padStart(2,'0')).join('');}
-function equal(a,b){if(a.length!==b.length)return false;let d=0;for(let i=0;i<a.length;i++)d|=a.charCodeAt(i)^b.charCodeAt(i);return d===0;}
-async function authenticated(req,env){if(!env.SESSION_SECRET)return false;const raw=req.headers.get('Cookie')?.match(/(?:^|;\s*)book_session=([^;]+)/)?.[1];if(!raw)return false;const [expiry,nonce,signature]=raw.split('.');if(Number(expiry)<Date.now()||!nonce||!signature)return false;return equal(signature,await sign(`${expiry}.${nonce}`,env.SESSION_SECRET));}
-function cookie(req,value,maxAge){return `book_session=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${new URL(req.url).protocol==='https:'?'; Secure':''}`;}
 async function body(req){if(Number(req.headers.get('content-length')||0)>6_000_000)throw new Error('文件过大，请控制在6MB以内');const text=await req.text();if(text.length>6_000_000)throw new Error('文件过大');return JSON.parse(text);}
 async function results(db,sql,...args){return (await db.prepare(sql).bind(...args).all()).results;}
 async function visibleSamples(db){return (await results(db,'SELECT * FROM samples')).filter(r=>evaluateScope(r.product,r.category).allowed);}
@@ -26,15 +22,6 @@ async function api(req,env) {
  if(path==='/api/health')return json({ok:true,app:'图书带货工作台',version:'0.1.0'});
  if(!env.DB)return fail('数据库尚未配置',503);
  if(method!=='GET' && req.headers.get('Origin')!==url.origin)return fail('请求来源不一致',403);
- if(path==='/api/login'&&method==='POST'){
-  if(!env.APP_PASS || !env.SESSION_SECRET)return fail('访问配置尚未完成',503);
-  const key=await hash((req.headers.get('cf-connecting-ip')||'local')+env.SESSION_SECRET);const attempt=await env.DB.prepare('SELECT * FROM auth_attempts WHERE key=?').bind(key).first();
-  if(attempt&&attempt.expires>Date.now()&&attempt.failures>=8)return fail('尝试次数过多，请15分钟后再试',429);
-  const input=await body(req);if(!equal(await hash(String(input.password||'')),await hash(env.APP_PASS))){const failures=attempt&&attempt.expires>Date.now()?attempt.failures+1:1;await env.DB.prepare('INSERT OR REPLACE INTO auth_attempts(key,failures,expires) VALUES(?,?,?)').bind(key,failures,Date.now()+900000).run();return fail('访问码不正确',401);}
-  await env.DB.prepare('DELETE FROM auth_attempts WHERE key=?').bind(key).run();const val=`${Date.now()+604800000}.${crypto.randomUUID()}`;return json({ok:true},200,{'set-cookie':cookie(req,val+'.'+await sign(val,env.SESSION_SECRET),604800)});
- }
- if(!await authenticated(req,env))return fail('请输入访问码',401);
- if(path==='/api/logout'&&method==='POST')return json({ok:true},200,{'set-cookie':cookie(req,'',0)});
  if(path==='/api/bootstrap'){
   const samples=await visibleSamples(env.DB), favorites=new Set((await results(env.DB,'SELECT product_key FROM favorites')).map(x=>x.product_key));const products=summarize(samples,favorites),snapshots=await results(env.DB,'SELECT * FROM snapshots ORDER BY captured_at DESC LIMIT 15');
   const currentSnapshotId=snapshots.find(x=>x.window_days===30)?.id||null;

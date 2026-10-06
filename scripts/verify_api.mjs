@@ -1,15 +1,14 @@
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const base=process.argv[2]||'http://127.0.0.1:8787';
-const password=JSON.parse(await readFile('access.credentials.json','utf8')).accessCode;
-let cookie='';const checked=[];
-async function request(path,method='GET',data,origin=base){const res=await fetch(base+'/api/'+path,{method,headers:{...(data?{'content-type':'application/json',Origin:origin}:{}),...(cookie?{Cookie:cookie}:{})},body:data?JSON.stringify(data):undefined});const payload=await res.json();return {res,payload};}
-let r=await request('bootstrap');assert.equal(r.res.status,401);checked.push('anonymous data access denied');
-r=await request('login','POST',{password},'https://invalid.example');assert.equal(r.res.status,403);checked.push('cross-origin login rejected');
-r=await request('login','POST',{password:'incorrect'});assert.equal(r.res.status,401);checked.push('incorrect access code rejected');
-r=await request('login','POST',{password});assert.equal(r.res.status,200);cookie=r.res.headers.get('set-cookie').split(';')[0];checked.push('login session created');
-r=await request('bootstrap');assert.equal(r.res.status,200);assert.equal(r.payload.stats.samples,190);assert.equal(r.payload.policy.lookbackDays,30);assert.equal(r.payload.snapshots[0].window_days,60);checked.push('190 real historical samples with honest 60-day provenance');
+const checked=[];
+async function request(path,method='GET',data,origin=base){const res=await fetch(base+'/api/'+path,{method,headers:data?{'content-type':'application/json',Origin:origin}:undefined,body:data?JSON.stringify(data):undefined});const payload=await res.json();return {res,payload};}
+let r=await request('jobs','POST',{sampleId:'D60-0001'},'https://invalid.example');assert.equal(r.res.status,403);checked.push('cross-origin writes remain rejected');
+r=await request('bootstrap');assert.equal(r.res.status,200);assert.equal(r.payload.stats.samples,190);assert.equal(r.payload.policy.lookbackDays,30);assert.equal(r.payload.snapshots[0].window_days,60);checked.push('anonymous access without cookies or password; 190 historical samples with honest provenance');
 const dataset=r.payload;
+r=await request('experiments');assert.equal(r.res.status,200);assert.ok(Array.isArray(r.payload));checked.push('anonymous access to workspace results');
+r=await request('samples/D60-0045');assert.equal(r.res.status,200);assert.equal(r.payload.briefOptions.ready,true);checked.push('anonymous access to actual reference and choices');
+r=await request('login','POST',{});assert.equal(r.res.status,404);checked.push('access-code endpoint removed');
 r=await request('samples/D60-0001');assert.equal(r.res.status,404);checked.push('teaching reference cannot be retrieved');
 r=await request('jobs','POST',{sampleId:'D60-0001',brief:{template:'tool',audience:'人群',task:'任务'}});assert.equal(r.res.status,400);checked.push('teaching task cannot be created');
 r=await request('import','POST',{rows:[{product:'漫画易经',account:'参考作者',published_at:'2026-10-04'}],windowDays:60,asOf:'2026-10-04'});assert.equal(r.res.status,400);checked.push('60-day upload cannot masquerade as the 30-day selection feed');
