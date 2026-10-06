@@ -20,6 +20,7 @@
       "0 1 * * *"
     ]
   },
+  "ai": { "binding": "AI" },
   "vars": {
     "APP_NAME": "图书带货工作台",
     "DATA_PROVIDER": "huitun_import",

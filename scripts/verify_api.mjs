@@ -16,16 +16,25 @@ if(base.includes('127.0.0.1')){
  r=await request('samples/D60-0045');const o=r.payload.briefOptions;assert.equal(o.ready,true);
  const brief={sourceVersion:o.sourceVersion,genderId:o.audience.genders[1].id,ageId:o.audience.ages[1].id,taskId:o.tasks[0].id,templateId:o.templates[0].id,materialId:o.materials[0].id,openerId:'free',freeOpener:'【QA】先看真实目录。'};
  r=await request('jobs','POST',{sampleId:'D60-0045',brief:{audience:'虚构职业',template:'tool',task:'任务'}});assert.equal(r.res.status,400);checked.push('raw free audience cannot bypass SKU evidence');
- r=await request('jobs','POST',{sampleId:'D60-0045',brief});assert.equal(r.res.status,200);const id=r.payload.id;assert.match(r.payload.script,/购买信息待核/);checked.push('draft creation saved to D1');
+ r=await request('jobs','POST',{sampleId:'D60-0045',brief});assert.equal(r.res.status,200);const id=r.payload.id;const script=r.payload.script;assert.match(script,/购买信息待核/);assert.equal(r.payload.production.cards.length,3);checked.push('draft and generated production graphics saved to D1');
+ r=await request('jobs/'+id+'/production');assert.equal(r.payload.pack.targetDurationSeconds,15);assert.equal(r.payload.pack.stale,false);const firstHash=r.payload.pack.planHash;
+ r=await request('jobs/'+id+'/model-tasks','POST',{shotId:'shot-2',provider:'minimax'});assert.equal(r.res.status,400);
+ r=await request('jobs/'+id+'/production','POST',{choices:{durationSeconds:15,scriptLocked:true}});assert.equal(r.res.status,200);
+ r=await request('jobs/'+id+'/model-tasks','POST',{shotId:'shot-2',provider:'minimax'});assert.equal(r.res.status,200);assert.equal(r.payload.status,'awaiting_connection');const modelId=r.payload.id;
+ r=await request('jobs/'+id+'/model-tasks','POST',{shotId:'shot-2',provider:'minimax'});assert.equal(r.payload.id,modelId);
+ r=await request('model-tasks/'+modelId+'/execute','POST',{});assert.equal(r.res.status,403);checked.push('model requests persist idempotently; public execution cannot spend credits');
+ r=await request('jobs/'+id+'/production','POST',{choices:{durationSeconds:30,format:'comic',scriptLocked:true,referenceChoices:{'ref-2':false}}});assert.equal(r.res.status,200);assert.equal(r.payload.pack.estimatedDurationSeconds,30);assert.notEqual(r.payload.pack.planHash,firstHash);assert.equal(r.payload.pack.shots[1].kind,'comic_scene');checked.push('duration, reference decisions and comic shots compile into revised plan');
+ r={payload:{script}};
  r=await request('jobs/'+id,'PATCH',{script:r.payload.script+'\n【QA】编辑保存核对',status:'awaiting_assets'});assert.equal(r.res.status,200);
  r=await request('bootstrap');assert.ok(r.payload.jobs.some(x=>x.id===id&&x.status==='awaiting_assets'&&x.script.includes('编辑保存核对')));const saved=JSON.parse(r.payload.jobs.find(x=>x.id===id).brief_json);assert.equal(saved.audienceEvidence.gender.percent,70.43);assert.equal(saved.contentEvidence.opener.evidenceType,'user_supplied_hypothesis');checked.push('editing, evidence and queued status persisted');
+ r=await request('jobs/'+id+'/production');assert.equal(r.payload.pack.stale,true);r=await request('jobs/'+id+'/production','POST',{});assert.equal(r.payload.pack.stale,undefined);assert.equal(r.payload.pack.targetDurationSeconds,30);checked.push('edited scripts invalidate old production and refresh keeps selected duration');
  r=await request('jobs/'+id,'PATCH',{status:'completed'});assert.equal(r.res.status,400);checked.push('unconnected render cannot be marked complete');
  r=await request('jobs/'+id,'PATCH',{status:'archived'});assert.equal(r.res.status,200);
  const input={rows:[{'关联商品':'【QA导入核对】文化散文集','播主':'QA作者','发布时间':'2026-10-06 00:01:00'},{'关联商品':'【QA排除】高一月考真题试卷','播主':'QA作者','发布时间':'2026-10-06 00:01:00'}],windowDays:30,asOf:'2026-10-06'};
  r=await request('import','POST',input);assert.equal(r.res.status,200);assert.equal(r.payload.imported,1);assert.equal(r.payload.excluded,1);
  const snapId=r.payload.snapshotId;
  r=await request('import','POST',input);assert.equal(r.payload.duplicate,true);checked.push('import excludes schoolware and repeat imports are idempotent');
- await writeFile('/tmp/book-local-qa-cleanup.sql',`DELETE FROM samples WHERE snapshot_id='${snapId}';\nDELETE FROM snapshot_rows WHERE snapshot_id='${snapId}';\nDELETE FROM snapshots WHERE id='${snapId}';\nDELETE FROM jobs WHERE id='${id}';\n`);
+ await writeFile('/tmp/book-local-qa-cleanup.sql',`DELETE FROM samples WHERE snapshot_id='${snapId}';\nDELETE FROM snapshot_rows WHERE snapshot_id='${snapId}';\nDELETE FROM snapshots WHERE id='${snapId}';\nDELETE FROM jobs WHERE id='${id}';\nDELETE FROM settings WHERE key='production:${id}';\nDELETE FROM settings WHERE key='model-task:${modelId}';\n`);
 }
 await mkdir('verification',{recursive:true});await writeFile('verification/'+(base.includes('127.0.0.1')?'local-api':'production-api')+'.json',JSON.stringify({base,checked,stats:dataset.stats,verifiedAt:new Date().toISOString()},null,2));
 console.log(JSON.stringify({base,checks:checked.length,stats:dataset.stats},null,2));

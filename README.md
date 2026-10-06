@@ -75,3 +75,29 @@ npm run dev
 ## 内容工作台入口修正（2026-10-06）
 
 未选商品时直接显示7款有成交画像与正文的可点击书目，不显示禁用的待补字段。下拉列表优先呈现可生成结构草稿的商品，其他商品保留参考阅读入口。选项未填完时列出还缺少的字段；缺少成交画像时明确解释原因，并提供阅读参考或切换有依据商品的操作。实际浏览器验证《中国神仙》选择、人群选项、五个候选开头与自由项、按钮解锁和草稿生成。
+
+## 视频制作流程（2026-10-07）
+
+制作队列的“分镜与素材”打开完整流程：文案定稿 → 对标拆解 → 取舍与优化 → 分镜编排 → 图/漫画/视频选择 → VO与字幕 → 模型任务 → 串联试片。先确认VO，再准备模型请求；文案和镜头选择分别保留，可改文字、画面想法、增删镜头，成片目标15或30秒。每个镜头提供3张构图示意，示意图明确标为非模型出图。实际图卡可下载PNG/SVG，整体可导出ZIP。修改稿件或选择会使旧模型请求与媒体失配，必须使用新方案。
+
+《中国神仙》补做本地原视频12个时点抽帧审核，仅证明这些位置的可见包装、翻页、目录与图版。未把抽帧说成完整逐镜头边界检测。其他参考只有正文和结构卡时，画面状态继续保持未审核。
+
+目前的视频模型接入按官方API实现：Seedance创建/查询任务、MiniMax H3创建/查询任务；接口参数和状态处理有模拟响应测试，尚未用真实视频模型账号验证。用户明确不要模型CLI中转，LibTV/Higgsfield CLI不会承担网站生成执行。公开工作区只准备请求，模型额度执行端用服务器侧令牌保护，凭证不进入前端。未确认的提交不会自动重试，避免重复消耗额度。
+
+图片与中文旁白测试使用既有Cloudflare Workers AI绑定：FLUX.2 klein-4B图片、MeloTTS中文旁白（实际返回WAV，按文件头识别格式）。使用官方包含的免费测试额度，设置应用每日测试量上限（图片保留200单位、旁白25单位，合计1200；这是应用测试预算单位，不是实时神经元账单）。不升级套餐或启用付费视频服务，超限失败不会自动切换付费。Cloudflare账户额度由该账户所有应用共享。
+
+确认文案后可生成选中场景图片、中文旁白，保留真实媒体字节；素材按方案版本缓存。浏览器把选中图卡/已生成图片和旁白录制为15/30秒竖屏试片，支持下载；编码器可用时MP4，否则WebM。不是Seedance/MiniMax动态场景成片，也不假称已有真实书页、完整字幕强制对齐或已发布抖音。真实实物/书页/录屏依然单独列出。
+
+官方参考：
+- Workers AI绑定：https://developers.cloudflare.com/workers-ai/configuration/bindings/
+- 图片multipart接口：https://developers.cloudflare.com/changelog/post/2026-01-15-flux-2-klein-4b-workers-ai/
+- 中文旁白：https://developers.cloudflare.com/workers-ai/models/melotts/
+- 包含的免费额度：https://developers.cloudflare.com/workers-ai/platform/pricing/
+- MiniMax：https://platform.minimax.io/docs/api-reference/video-generation-v2-create
+- Seedance：https://api.volcengine.com/api-explorer/?action=CreateContentsGenerationsTasks&serviceCode=ark&version=2024-01-01
+
+## 本次实际验收（2026-10-07）
+
+34个单元与接口契约测试通过；本地16项API检查、公网8项API检查通过。浏览器实际完成15秒与30秒中文VO试片，下载文件并解码为720×1280、H.264视频与Opus音频。30秒文件约2.33MB，真实时长30.02秒；保存到D1后支持匿名播放、下载及206字节范围请求。WAV音频分块保存，兼容旧版单条base64记录，避免D1单值限制。当前是浏览器试片，不代表所有发布平台已接受此编码。
+
+视频API接入后会使用选中已生成图片作为首帧，成功返回的片段经受限域名代理进入镜头串联；该路径目前有契约测试，尚未进行真实Seedance或MiniMax生成。

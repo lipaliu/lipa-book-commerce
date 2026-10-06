@@ -9,3 +9,5 @@ VI：暖白画布 #F6F7F2，深松绿主色 #1B5547，浅绿选中底 #E8F1E9；
 已查看参考：24S / Nicolas Queffelec 的筛选与商品对齐设计板（https://www.queffelec.fr/projets/lvmh-24s-refonte-fonctionnelle-graphique-site-design-system）；Bottega Veneta / Studio 206 公开CMS板（https://studio206.dev/case-studies/bottega-veneta）的列表与当前对象分区。仅借鉴关系，独立实现；未复制原图片、商标或代码，未宣称操作过其后台。
 
 实现为独立HTML/CSS/JS与Cloudflare Worker/D1。Mira目标仓库尚未定位，本版不声称复用其源码。产品数据来自现有非教辅研究视图，正文与画像未全人工确认；生成是明确标注的结构草稿，语音/视频服务接入状态单独显示。
+
+制作方案交互：用可点击的8步流程图展示文案、参考、取舍、分镜和输出之间的关系。文案先确认；分镜中“采用文字”和“保留镜头”独立操作，每个镜头提供3种明确标注为示意的构图。实际图卡、模型图片、声音、视频分别展示生成状态，不能用同一种成功标记替代。15/30秒是最终串联目标，模型原始片段可略长并剪到目标。

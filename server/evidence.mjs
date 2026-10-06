@@ -80,7 +80,7 @@ export function resolveBriefSelections(sample,input){
  if(input.sourceVersion!==options.sourceVersion)throw new Error('成交依据已变化或不属于当前SKU，请重新选择');
  const choose=(list,id,name)=>{const item=list.find(x=>x.id===id);if(!item)throw new Error('请选择有依据的'+name);return item;};
  const gender=choose(options.audience.genders,input.genderId,'性别方向'),age=choose(options.audience.ages,input.ageId,'年龄方向');
- const task=choose(options.tasks,input.taskId,'购买任务'),template=choose(options.templates,input.templateId,'制作模板'),material=choose(options.materials,input.materialId,'证据素材计划');
+ const task=choose(options.tasks,input.taskId,'购买任务'),template=choose(options.templates,input.templateId,'制作模板'),material=input.materialId?choose(options.materials,input.materialId,'证据素材计划'):options.materials[0];
  let opener;
  if(input.openerId==='free'){
   const text=String(input.freeOpener||'').trim();if(!text||text.length>1000)throw new Error('自由开头需要填写1至1000字');
