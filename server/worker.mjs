@@ -14,7 +14,7 @@ async function hash(text){return [...new Uint8Array(await crypto.subtle.digest('
 async function body(req){if(Number(req.headers.get('content-length')||0)>6_000_000)throw new Error('文件过大，请控制在6MB以内');const text=await req.text();if(text.length>6_000_000)throw new Error('文件过大');return JSON.parse(text);}
 async function results(db,sql,...args){return (await db.prepare(sql).bind(...args).all()).results;}
 async function visibleSamples(db){return (await results(db,'SELECT * FROM samples')).filter(r=>evaluateScope(r.product,r.category).allowed);}
-function summarize(samples,favorites){const groups=new Map();for(const r of samples){if(!groups.has(r.product_key))groups.set(r.product_key,{key:r.product_key,product:r.product,category:r.category,samples:[],buyer:null,sourceWindows:[],favorite:favorites.has(r.product_key)});const p=groups.get(r.product_key);p.samples.push({id:r.id,account:r.account,salesBand:r.sales_band,videoId:r.video_id,hasBody:!!r.body,buyerAvailable:buildBriefOptions(r).ready,publishedAt:r.published_at,snapshotId:r.snapshot_id});if(r.buyer_json)p.buyer=JSON.parse(r.buyer_json);if(!p.sourceWindows.includes(r.source_window))p.sourceWindows.push(r.source_window);}
+function summarize(samples,favorites){const groups=new Map();for(const r of samples){if(!groups.has(r.product_key))groups.set(r.product_key,{key:r.product_key,product:r.product,category:r.category,samples:[],buyer:null,sourceWindows:[],favorite:favorites.has(r.product_key)});const p=groups.get(r.product_key);p.samples.push({id:r.id,account:r.account,salesBand:r.sales_band,videoId:r.video_id,hasBody:!!r.body,hasFrames:referenceRows(r).some(f=>f.imageUrl),buyerAvailable:buildBriefOptions(r).ready,publishedAt:r.published_at,snapshotId:r.snapshot_id});if(r.buyer_json)p.buyer=JSON.parse(r.buyer_json);if(!p.sourceWindows.includes(r.source_window))p.sourceWindows.push(r.source_window);}
 return [...groups.values()].map(p=>{p.samples.sort((a,b)=>(salesLower(b.salesBand)||0)-(salesLower(a.salesBand)||0));return {...p,identity:p.buyer?.product_id?'已匹配商品ID，ISBN待核':'按商品名称分组，SKU待核',bestSalesBand:p.samples[0]?.salesBand||'未知'};}).sort((a,b)=>(salesLower(b.bestSalesBand)||0)-(salesLower(a.bestSalesBand)||0));}
 async function syncRun(env,source='manual') {
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date());
@@ -63,6 +63,16 @@ async function api(req,env) {
   await env.DB.prepare("UPDATE sync_runs SET status='imported',message=? WHERE status='awaiting_source'").bind('已收到人工导入，自动采集仍待接入').run();
   return json({imported:statements.length,excluded,quarantined,snapshotId:id});
  }
+ if(path==='/api/reference-jobs'&&method==='POST'){
+  const input=await body(req),s=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(String(input.sampleId)).first();
+  if(!s||!evaluateScope(s.product,s.category).allowed)return fail('教辅或无效商品不能进入制作');
+  const existing=await env.DB.prepare("SELECT id FROM jobs WHERE sample_id=? AND status!='archived' ORDER BY updated_at DESC LIMIT 1").bind(s.id).first();
+  if(existing)return json({id:existing.id,reused:true});
+  const brief={mode:'reference',template:'reading',task:'原视频分镜编辑'},script=String(s.body||'原片旁白待采集。').slice(0,900),stamp=now();
+  const id='reference-'+s.id;
+  await env.DB.prepare("INSERT INTO jobs(id,sample_id,product_key,title,status,template,brief_json,script,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status='draft',updated_at=excluded.updated_at").bind(id,s.id,s.product_key,s.product,'draft',brief.template,JSON.stringify(brief),script,stamp,stamp).run();
+  return json({id});
+ }
  if(path==='/api/jobs'&&method==='POST'){
   const input=await body(req);const s=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(String(input.sampleId)).first();if(!s||!evaluateScope(s.product,s.category).allowed)return fail('教辅或无效商品不能进入制作');
   const brief=resolveBriefSelections(s,input.brief||{});const script=makeDraft(s,brief);const stamp=now(),id=crypto.randomUUID();
@@ -72,7 +82,7 @@ async function api(req,env) {
   const id=path.split('/')[3],{pack,job,sample}=await readProduction(env,id);
   const modelTasks=(await results(env.DB,"SELECT value FROM settings WHERE key LIKE 'model-task:%'")).map(r=>JSON.parse(r.value)).filter(t=>t.jobId===id);
   if(method==='GET')return json({pack,providers:providers(env),modelTasks});
-  const brief=resolveBriefSelections(sample,JSON.parse(job.brief_json).selections||{});const input=await body(req);
+  const savedBrief=JSON.parse(job.brief_json);const brief=savedBrief.mode==='reference'?savedBrief:resolveBriefSelections(sample,savedBrief.selections||{});const input=await body(req);
   const updated=await writeProduction(env,job,sample,brief,input.choices||pack?.planChoices||{});return json({pack:{...updated,referenceRows:referenceRows(sample),referenceEdits:pack?.referenceEdits||[]},providers:providers(env),modelTasks});
  }
  if(/^\/api\/jobs\/[^/]+\/reference-edits$/.test(path)&&method==='POST'){
