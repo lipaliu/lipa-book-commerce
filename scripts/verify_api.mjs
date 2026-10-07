@@ -27,7 +27,7 @@ if(base.includes('127.0.0.1')){
  r={payload:{script}};
  r=await request('jobs/'+id,'PATCH',{script:r.payload.script+'\n【QA】编辑保存核对',status:'awaiting_assets'});assert.equal(r.res.status,200);
  r=await request('bootstrap');assert.ok(r.payload.jobs.some(x=>x.id===id&&x.status==='awaiting_assets'&&x.script.includes('编辑保存核对')));const saved=JSON.parse(r.payload.jobs.find(x=>x.id===id).brief_json);assert.equal(saved.audienceEvidence.gender.percent,70.43);assert.equal(saved.contentEvidence.opener.evidenceType,'user_supplied_hypothesis');checked.push('editing, evidence and queued status persisted');
- r=await request('jobs/'+id+'/production');assert.equal(r.payload.pack.stale,true);r=await request('jobs/'+id+'/production','POST',{});assert.equal(r.payload.pack.stale,undefined);assert.equal(r.payload.pack.targetDurationSeconds,30);checked.push('edited scripts invalidate old production and refresh keeps selected duration');
+ r=await request('jobs/'+id+'/production');assert.equal(r.payload.pack.stale,true);r=await request('jobs/'+id+'/production','POST',{});assert.equal(r.payload.pack.stale,false);assert.equal(r.payload.pack.targetDurationSeconds,30);checked.push('edited scripts invalidate old production and refresh keeps selected duration');
  r=await request('jobs/'+id,'PATCH',{status:'completed'});assert.equal(r.res.status,400);checked.push('unconnected render cannot be marked complete');
  r=await request('jobs/'+id,'PATCH',{status:'archived'});assert.equal(r.res.status,200);
  const input={rows:[{'关联商品':'【QA导入核对】文化散文集','播主':'QA作者','发布时间':'2026-10-06 00:01:00'},{'关联商品':'【QA排除】高一月考真题试卷','播主':'QA作者','发布时间':'2026-10-06 00:01:00'}],windowDays:30,asOf:'2026-10-06'};

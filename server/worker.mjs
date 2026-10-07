@@ -24,11 +24,13 @@ async function syncRun(env,source='manual') {
  await env.DB.prepare('INSERT INTO sync_runs(id,requested_at,status,lookback_days,excluded_category,message) VALUES(?,?,?,?,?,?)').bind(...Object.values(run)).run();return run;
 }
 async function storedJob(env,id){const job=await env.DB.prepare('SELECT * FROM jobs WHERE id=?').bind(id).first();if(!job)throw new Error('制作任务不存在');const sample=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(job.sample_id).first();if(!sample||!evaluateScope(sample.product,sample.category).allowed)throw new Error('商品不在非教辅制作范围');return {job,sample};}
+async function imageSourceHash(pack,shot){return hash(JSON.stringify({title:pack.title,kind:shot.kind,visual:shot.visual,vo:shot.vo}));}
 async function productionHash(job){return hash(job.script+'|'+job.brief_json);}
 async function writeProduction(env,job,sample,brief,choices={}){const old=await env.DB.prepare('SELECT value FROM settings WHERE key=?').bind('production:'+job.id).first();const normalized=reconcileProductionChoices(old?JSON.parse(old.value):null,choices);const pack=buildProduction(job,sample,brief,normalized);pack.sourceHash=await productionHash(job);pack.planHash=await hash(pack.sourceHash+JSON.stringify(pack.planChoices));await env.DB.prepare('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)').bind('production:'+job.id,JSON.stringify(pack)).run();return pack;}
 async function readProduction(env,id){const {job,sample}=await storedJob(env,id);const row=await env.DB.prepare('SELECT value FROM settings WHERE key=?').bind('production:'+id).first();if(!row)return {pack:null,job,sample};const pack=JSON.parse(row.value);let localRender=null;
  try{const root='/generated/'+encodeURIComponent(id)+'/';const response=await env.ASSETS.fetch(new Request('https://assets.local'+root+'render.json'));if(response.headers.get('content-type')?.includes('application/json')){const render=await response.json();if(render.jobId===id&&render.planHash===pack.planHash)localRender={...render,previewUrl:root+'preview.mp4',voiceUrl:root+'narration.wav',subtitleUrl:root+'subtitles-rough.srt'};}}catch{}
- const generated=(await results(env.DB,"SELECT key,json_extract(value,'$.jobId') AS jobId,json_extract(value,'$.sourceHash') AS sourceHash,json_extract(value,'$.shotId') AS shotId,json_extract(value,'$.kind') AS kind,json_extract(value,'$.model') AS model,json_extract(value,'$.mime') AS mime FROM settings WHERE key LIKE 'generated:%'")).filter(r=>r.jobId===id&&r.sourceHash===pack.planHash).map(r=>({...r,id:r.key.slice(10),url:'/api/generated/'+r.key.slice(10)}));
+ const imageHashes=new Map(await Promise.all(pack.shots.map(async shot=>[shot.id,await imageSourceHash(pack,shot)])));
+ const generated=(await results(env.DB,"SELECT key,json_extract(value,'$.jobId') AS jobId,json_extract(value,'$.sourceHash') AS sourceHash,json_extract(value,'$.contentHash') AS contentHash,json_extract(value,'$.shotId') AS shotId,json_extract(value,'$.kind') AS kind,json_extract(value,'$.model') AS model,json_extract(value,'$.mime') AS mime FROM settings WHERE key LIKE 'generated:%'")).filter(r=>r.jobId===id&&(r.sourceHash===pack.planHash||(r.kind==='image'&&r.contentHash===imageHashes.get(r.shotId)))).map(r=>({...r,id:r.key.slice(10),url:'/api/generated/'+r.key.slice(10)}));
  const previewRows=(await results(env.DB,"SELECT value FROM settings WHERE key LIKE 'preview:%'")).map(r=>JSON.parse(r.value)).filter(r=>r.jobId===id&&r.sourceHash===pack.planHash).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));const savedPreview=previewRows.length?{...previewRows[0],url:'/api/previews/'+previewRows[0].id}:null;
  const edits=await env.DB.prepare('SELECT value FROM settings WHERE key=?').bind('reference-edits:'+id).first();
  return {pack:{...pack,referenceRows:referenceRows(sample),referenceEdits:edits?JSON.parse(edits.value):[],localRender,generated,savedPreview,stale:pack.sourceHash!==await productionHash(job)},job,sample};}
@@ -83,7 +85,7 @@ async function api(req,env) {
   const modelTasks=(await results(env.DB,"SELECT value FROM settings WHERE key LIKE 'model-task:%'")).map(r=>JSON.parse(r.value)).filter(t=>t.jobId===id);
   if(method==='GET')return json({pack,providers:providers(env),modelTasks});
   const savedBrief=JSON.parse(job.brief_json);const brief=savedBrief.mode==='reference'?savedBrief:resolveBriefSelections(sample,savedBrief.selections||{});const input=await body(req);
-  const updated=await writeProduction(env,job,sample,brief,input.choices||pack?.planChoices||{});return json({pack:{...updated,referenceRows:referenceRows(sample),referenceEdits:pack?.referenceEdits||[]},providers:providers(env),modelTasks});
+  await writeProduction(env,job,sample,brief,input.choices||pack?.planChoices||{});const updated=await readProduction(env,id);return json({pack:updated.pack,providers:providers(env),modelTasks});
  }
  if(/^\/api\/jobs\/[^/]+\/reference-edits$/.test(path)&&method==='POST'){
   const id=path.split('/')[3],{sample}=await storedJob(env,id),input=await body(req),edits=cleanReferenceEdits(referenceRows(sample),input.edits);
@@ -108,12 +110,13 @@ async function api(req,env) {
  if(/^\/api\/previews\/[a-f0-9]{32}$/.test(path)&&method==='GET')return servePreview(env.DB,path.split('/')[3],req.headers.get('Range'),url.searchParams.get('download')==='1');
  if(/^\/api\/jobs\/[^/]+\/(voice|images)$/.test(path)&&method==='POST'){
   if(!env.AI)return fail('图片与旁白测试API尚未配置',503);
-  const jobId=path.split('/')[3],type=path.endsWith('/voice')?'voice':'image',input=await body(req),{pack}=await readProduction(env,jobId);if(!pack||pack.stale||!pack.scriptLocked)return fail('请先确认当前VO文案并更新分镜');
+  const jobId=path.split('/')[3],type=path.endsWith('/voice')?'voice':'image',input=await body(req),{pack}=await readProduction(env,jobId);if(!pack||pack.stale)return fail('请先保存当前分镜');if(type==='voice'&&!pack.scriptLocked)return fail('请先确认当前旁白');if(input.planHash&&input.planHash!==pack.planHash)return fail('分镜已变化，请保存当前选择后重新生成');
   const shot=type==='image'?pack.shots.find(s=>s.id===input.shotId):null;if(type==='image'&&!['comic_scene','generated_scene'].includes(shot?.kind))return fail('图卡无需模型出图；真实商品素材应自行拍摄');
-  const mediaId=(await hash(jobId+'|'+pack.planHash+'|'+type+'|'+(shot?.id||''))).slice(0,32),key='generated:'+mediaId;
+  const contentHash=type==='image'?await imageSourceHash(pack,shot):null;
+  const mediaId=(await hash(jobId+'|'+(contentHash||pack.planHash)+'|'+type+'|'+(shot?.id||''))).slice(0,32),key='generated:'+mediaId;
   const old=await env.DB.prepare('SELECT value FROM settings WHERE key=?').bind(key).first();if(old){const r=JSON.parse(old.value);return json({id:mediaId,url:'/api/generated/'+mediaId,mime:r.mime,model:r.model,cached:true});}
   await reserveFreeTest(env.DB,type);const result=type==='voice'?await generateVoice(env.AI,pack.narration):await generateSceneImage(env.AI,shot,pack.title);
-  await storeGenerated(env.DB,mediaId,{jobId,sourceHash:pack.planHash,shotId:shot?.id||null,kind:type,mime:result.mime,model:result.model,createdAt:now()},result.bytes);return json({id:mediaId,url:'/api/generated/'+mediaId,mime:result.mime,model:result.model,cached:false});
+  await storeGenerated(env.DB,mediaId,{jobId,sourceHash:pack.planHash,contentHash,shotId:shot?.id||null,kind:type,mime:result.mime,model:result.model,createdAt:now()},result.bytes);return json({id:mediaId,url:'/api/generated/'+mediaId,mime:result.mime,model:result.model,cached:false});
  }
  if(/^\/api\/generated\/[a-f0-9]{32}$/.test(path)&&method==='GET'){
   return serveGenerated(env.DB,path.split('/')[3]);
