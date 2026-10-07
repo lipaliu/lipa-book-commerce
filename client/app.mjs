@@ -156,3 +156,5 @@ document.addEventListener('change',e=>{if(productionView&&e.target.closest('.pro
 document.addEventListener('change',e=>{if(e.target.matches('[data-candidate-kind]')){const row=e.target.closest('.shot-row');row.querySelector('[data-shot-kind]').value=e.target.value;productionView.pendingChoices=collectPlanChoices();}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDetail();});
 load().catch(e=>{root.innerHTML=`<div class="empty">工作台暂时无法打开：${esc(e.message)}<br>请稍后刷新。</div>`;});
+
+document.addEventListener('change',e=>{if(e.target.matches('[data-shot-kind],[data-shot-image]')){productionView.pendingChoices=collectPlanChoices();renderProduction();}});
