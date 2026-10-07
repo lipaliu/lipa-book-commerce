@@ -1,3 +1,4 @@
+import {referenceRows,cleanReferenceEdits,suggestEdit} from './ai-editor.mjs';
 import {storeGenerated,serveGenerated} from './generated.mjs';
 import {storePreview,servePreview} from './preview.mjs';
 import {generateVoice,generateSceneImage,reserveFreeTest,fromBase64} from './free-media.mjs';
@@ -29,7 +30,8 @@ async function readProduction(env,id){const {job,sample}=await storedJob(env,id)
  try{const root='/generated/'+encodeURIComponent(id)+'/';const response=await env.ASSETS.fetch(new Request('https://assets.local'+root+'render.json'));if(response.headers.get('content-type')?.includes('application/json')){const render=await response.json();if(render.jobId===id&&render.planHash===pack.planHash)localRender={...render,previewUrl:root+'preview.mp4',voiceUrl:root+'narration.wav',subtitleUrl:root+'subtitles-rough.srt'};}}catch{}
  const generated=(await results(env.DB,"SELECT key,json_extract(value,'$.jobId') AS jobId,json_extract(value,'$.sourceHash') AS sourceHash,json_extract(value,'$.shotId') AS shotId,json_extract(value,'$.kind') AS kind,json_extract(value,'$.model') AS model,json_extract(value,'$.mime') AS mime FROM settings WHERE key LIKE 'generated:%'")).filter(r=>r.jobId===id&&r.sourceHash===pack.planHash).map(r=>({...r,id:r.key.slice(10),url:'/api/generated/'+r.key.slice(10)}));
  const previewRows=(await results(env.DB,"SELECT value FROM settings WHERE key LIKE 'preview:%'")).map(r=>JSON.parse(r.value)).filter(r=>r.jobId===id&&r.sourceHash===pack.planHash).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));const savedPreview=previewRows.length?{...previewRows[0],url:'/api/previews/'+previewRows[0].id}:null;
- return {pack:{...pack,localRender,generated,savedPreview,stale:pack.sourceHash!==await productionHash(job)},job,sample};}
+ const edits=await env.DB.prepare('SELECT value FROM settings WHERE key=?').bind('reference-edits:'+id).first();
+ return {pack:{...pack,referenceRows:referenceRows(sample),referenceEdits:edits?JSON.parse(edits.value):[],localRender,generated,savedPreview,stale:pack.sourceHash!==await productionHash(job)},job,sample};}
 async function api(req,env) {
  const url=new URL(req.url),path=url.pathname,method=req.method;
  if(path==='/api/health')return json({ok:true,app:'图书带货工作台',version:'0.1.0'});
@@ -71,7 +73,23 @@ async function api(req,env) {
   const modelTasks=(await results(env.DB,"SELECT value FROM settings WHERE key LIKE 'model-task:%'")).map(r=>JSON.parse(r.value)).filter(t=>t.jobId===id);
   if(method==='GET')return json({pack,providers:providers(env),modelTasks});
   const brief=resolveBriefSelections(sample,JSON.parse(job.brief_json).selections||{});const input=await body(req);
-  return json({pack:await writeProduction(env,job,sample,brief,input.choices||pack?.planChoices||{}),providers:providers(env),modelTasks});
+  const updated=await writeProduction(env,job,sample,brief,input.choices||pack?.planChoices||{});return json({pack:{...updated,referenceRows:referenceRows(sample),referenceEdits:pack?.referenceEdits||[]},providers:providers(env),modelTasks});
+ }
+ if(/^\/api\/jobs\/[^/]+\/reference-edits$/.test(path)&&method==='POST'){
+  const id=path.split('/')[3],{sample}=await storedJob(env,id),input=await body(req),edits=cleanReferenceEdits(referenceRows(sample),input.edits);
+  await env.DB.prepare('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)').bind('reference-edits:'+id,JSON.stringify(edits)).run();return json({edits});
+ }
+ if(/^\/api\/jobs\/[^/]+\/ai-edit$/.test(path)&&method==='POST'){
+  if(!env.AI)return fail('文本模型尚未连接',503);
+  const id=path.split('/')[3],{sample,pack}=await readProduction(env,id),input=await body(req);
+  if(!pack)return fail('请先建立制作方案');
+  const source=input.referenceId?referenceRows(sample).find(r=>r.id===input.referenceId):pack.shots.find(r=>r.id===input.shotId);
+  if(!source)return fail('需要有效的参考段落或分镜');
+  if(!['vo','visual'].includes(input.field)||String(input.currentText??'').length>2500||String(input.narration??'').length>2500||String(input.instruction??'').length>300)return fail('编辑内容或要求过长');
+  const seconds=Number(input.seconds??5);if(!Number.isFinite(seconds)||seconds<0.5||seconds>30)return fail('请输入0.5至30秒');
+  await reserveFreeTest(env.DB,'text');
+  const suggestion=await suggestEdit(env.AI,{...input,seconds,title:pack.title,originalText:input.referenceId?source.text:(sample.body||'').slice(0,2000)});
+  const suggestionId=crypto.randomUUID();await env.DB.prepare('INSERT INTO settings(key,value) VALUES(?,?)').bind('ai-edit:'+suggestionId,JSON.stringify({...suggestion,jobId:id,sourceId:source.id,sourceText:input.currentText||''})).run();return json({...suggestion,id:suggestionId});
  }
  if(/^\/api\/jobs\/[^/]+\/previews$/.test(path)&&method==='POST'){
   const input=await body(req),{pack}=await readProduction(env,path.split('/')[3]);if(!pack||pack.stale||!pack.scriptLocked||input.planHash!==pack.planHash)return fail('分镜方案已变化，请按当前选择重新录制');

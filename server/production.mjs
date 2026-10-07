@@ -25,7 +25,7 @@ function storyboardSketch(kind,purpose,vo){
 }
 const titleNames={'D60-0002':'豆豆三部曲','D60-0003':'中国神仙 / 中国妖鬼','D60-0009':'它们是如何运转的','D60-0012':'漫画讲透易经','D60-0024':'三联生活周刊','D60-0045':'你缺失的那门计算机课','D60-0039':'中国人的血脂管理指南'};
 const demoChecks={reading:'先看目录怎样组织主题，再看一页内容能否回应你的问题。',classic:'先把原文与解释分开，再看这个版本是否适合你的阅读习惯。',tool:'先找到对应目录，再完整复现一次操作，看看方法能否照着做。',gift:'先核对版本与规格，再看装帧、实物和内容是否适合使用场景。'};
-const time=x=>`00:${String(Math.floor(x/60)).padStart(2,'0')}:${String(x%60).padStart(2,'0')},000`;
+const time=x=>{const ms=Math.round(x*1000);return `00:${String(Math.floor(ms/60000)).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')},${String(ms%1000).padStart(3,'0')}`;};
 export function buildProduction(job,sample,brief,choices={}){
  if(!evaluateScope(sample.product,sample.category).allowed)throw new Error('教辅或无效商品不能制作');
  const style=shootingStyles[brief.template];if(!style)throw new Error('请选择视频拍法');
@@ -52,7 +52,12 @@ export function buildProduction(job,sample,brief,choices={}){
  if(!active.length)throw new Error('至少保留一个镜头');if(targetDurationSeconds===30&&active.length<2)throw new Error('30秒请至少保留两个镜头，单个模型片段最长15秒');
  const base=targetDurationSeconds===15?[3,4,5,3]:[5,8,10,7];let cursor=0;
  const weights=active.map(r=>base[r.i]||4),weightSum=weights.reduce((a,b)=>a+b,0);
- const lengths=weights.map(w=>Math.round(w/weightSum*targetDurationSeconds));lengths[lengths.length-1]+=targetDurationSeconds-lengths.reduce((a,b)=>a+b,0);
+ const fixed=active.map(r=>r.decision?.seconds==null?null:Number(r.decision.seconds));
+ if(fixed.some(v=>v!==null&&(!Number.isFinite(v)||v<0.5||v>30||Math.abs(v*10-Math.round(v*10))>0.00001)))throw new Error('单镜头时长需要0.5至30秒，最多一位小数');
+ const fixedTotal=fixed.reduce((n,v)=>n+(v??0),0),free=active.map((_,i)=>i).filter(i=>fixed[i]===null),remaining=Math.round((targetDurationSeconds-fixedTotal)*10)/10;
+ if(remaining<free.length*0.5||(!free.length&&Math.abs(remaining)>0.01))throw new Error(`已指定镜头合计${fixedTotal}秒，目标${targetDurationSeconds}秒；请调整秒数或点击“重新自动分配”`);
+ const freeWeight=free.reduce((n,i)=>n+weights[i],0);const lengths=fixed.map((v,i)=>v??(0.5+Math.floor((remaining-free.length*0.5)*weights[i]/freeWeight*10)/10));
+ if(free.length)lengths[free[free.length-1]]=Math.round((lengths[free[free.length-1]]+targetDurationSeconds-lengths.reduce((n,v)=>n+v,0))*10)/10;
 
  const frames=[
   {purpose:'开头与代入',visual:'原创问题图卡，少量图形运动，保留清晰的文字区。',kind:'graphic',move:'轻推近，1秒内出现主题',ref:'提炼对标的进入问题方式，不继承原作者身份。'},
@@ -61,11 +66,11 @@ export function buildProduction(job,sample,brief,choices={}){
   {purpose:'书目与下一步',visual:`原创书目卡：${title}。版本和购买信息另核，图卡不是官方封面。`,kind:'graphic',move:'稳定画面，字幕与图卡保持安全区',ref:'保留商品承接，删掉未核实的促销、作者背书与效果承诺。'}
  ];
  const shots=active.map(({v,i,id,decision,extra},n)=>{v=decision?.includeVO===false?'':String(decision?.vo??v);let f=extra?{purpose:extra.purpose||'补充镜头',visual:extra.visual||'围绕当前文字生成原创画面',kind:extra.kind||'graphic',move:'完整动作，清晰构图',ref:'用户新增分镜，画面用途尚待测试。'}:{...(frames[i]||frames[3])};f.kind=decision?.kind||(format==='comic'&&f.kind==='generated_scene'?'comic_scene':f.kind);
- if(decision?.visual)f.visual=String(decision.visual);
- if(!decision?.visual&&f.kind==='graphic')f.visual='原创图卡，图形与文字表达这一段VO；不是本书实际内页。';
- if(!decision?.visual&&f.kind==='comic_scene')f.visual='原创漫画情境表达这一段VO，以简洁人物动作和视觉隐喻连接问题与解释；不把虚构画面当成本书图版。';
- if(!decision?.visual&&f.kind==='generated_scene'&&i===2)f.visual='原创解释场景；这张画面不承担商品内页证明。';
- const start=cursor;cursor+=lengths[n];const generationSeconds=Math.max(4,Math.min(15,lengths[n]));
+ if(decision?.visual!=null)f.visual=String(decision.visual);
+ if(decision?.visual==null&&f.kind==='graphic')f.visual='原创图卡，图形与文字表达这一段VO；不是本书实际内页。';
+ if(decision?.visual==null&&f.kind==='comic_scene')f.visual='原创漫画情境表达这一段VO，以简洁人物动作和视觉隐喻连接问题与解释；不把虚构画面当成本书图版。';
+ if(decision?.visual==null&&f.kind==='generated_scene'&&i===2)f.visual='原创解释场景；这张画面不承担商品内页证明。';
+ const start=cursor;cursor=Math.round((cursor+lengths[n])*10)/10;const generationSeconds=Math.max(4,Math.min(15,lengths[n]));
  if(referenceChoices['ref-'+(i+1)]===false)f.ref='不沿用参考这一段，按当前购买任务重写画面。';
  return {id,...f,includeVO:decision?.includeVO!==false,startSeconds:start,endSeconds:cursor,timelineDurationSeconds:lengths[n],durationSeconds:generationSeconds,imageId:decision?.imageId||(['hook','guide','guide','book'][i]||'book'),vo:v,subtitle:v,
   prompt:`9:16竖屏短视频，${generationSeconds}秒素材，最终剪辑使用${lengths[n]}秒。${f.visual} 摄影：${f.move}。暖白与松绿色调，真实材质，主体清晰，字幕在后期添加，不生成任何文字。画面功能：${f.purpose}。主题：${title}。文案语义：${v}（只用于设计画面，不朗读）。不生成虚假商品封面、内页、ISBN或价格；不复刻参考博主的脸、声音与个人身份。${f.kind==='real_product'?'此镜头需真实商品素材，目前只形成拍摄计划。':'VO独立制作，画面中不说话，不添加音乐或旁白。'}`,
