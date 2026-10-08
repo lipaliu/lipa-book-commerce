@@ -1,7 +1,15 @@
 import {build} from 'esbuild';
-import {mkdir,copyFile,cp} from 'node:fs/promises';
+import {mkdir,copyFile,cp,readdir} from 'node:fs/promises';
 await mkdir('dist',{recursive:true});
-await build({entryPoints:['client/app.mjs'],bundle:true,outfile:'dist/app.js',format:'esm',target:['es2022'],minify:true});
+await build({entryPoints:['client/app.mjs'],bundle:true,outfile:'dist/app.js',format:'esm',target:['es2022'],minify:true,external:['/vendor/*']});
 for(const f of ['index.html','style.css']) await copyFile('client/'+f,'dist/'+f);
 await cp('client/reference-frames','dist/reference-frames',{recursive:true});
+await mkdir('dist/vendor/ocr',{recursive:true});
+await mkdir('dist/vendor/pdf',{recursive:true});
+for(const f of ['pdf.mjs','pdf.worker.mjs'])await copyFile('node_modules/pdfjs-dist/build/'+f,'dist/vendor/pdf/'+f);
+for(const d of ['cmaps','standard_fonts','wasm'])await cp('node_modules/pdfjs-dist/'+d,'dist/vendor/pdf/'+d,{recursive:true});
+for(const f of ['tesseract.esm.min.js','worker.min.js','worker.min.js.LICENSE.txt'])await copyFile('node_modules/tesseract.js/dist/'+f,'dist/vendor/ocr/'+f);
+for(const f of await readdir('node_modules/tesseract.js-core'))if(f.endsWith('.wasm.js')||f.endsWith('.wasm'))await copyFile('node_modules/tesseract.js-core/'+f,'dist/vendor/ocr/'+f);
+for(const lang of ['chi_sim','chi_tra'])await copyFile('node_modules/@tesseract.js-data/'+lang+'/4.0.0_best_int/'+lang+'.traineddata.gz','dist/vendor/ocr/'+lang+'.traineddata.gz');
+for(const [src,dest] of [['pdfjs-dist/LICENSE','pdf/LICENSE'],['tesseract.js/LICENSE.md','ocr/LICENSE.md'],['tesseract.js-core/LICENSE','ocr/core-LICENSE']])await copyFile('node_modules/'+src,'dist/vendor/'+dest);
 console.log('Built book commerce workbench');

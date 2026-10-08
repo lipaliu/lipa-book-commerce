@@ -1,5 +1,6 @@
 import {rankReferences,analyzeReferenceDirections} from './reference-research.mjs';
 import {generateStudioPlan} from './studio.mjs';
+import {validateBookText,generateBookTextPlan} from './book-text.mjs';
 import {referenceRows,cleanReferenceEdits,suggestEdit} from './ai-editor.mjs';
 import {storeGenerated,serveGenerated} from './generated.mjs';
 import {storePreview,servePreview} from './preview.mjs';
@@ -41,6 +42,17 @@ async function api(req,env) {
  if(path==='/api/health')return json({ok:true,app:'图书带货工作台',version:'0.1.0'});
  if(!env.DB)return fail('数据库尚未配置',503);
  if(method!=='GET' && req.headers.get('Origin')!==url.origin)return fail('请求来源不一致',403);
+ if(path==='/api/book-text/plan'&&method==='POST'){
+  const input=validateBookText(await body(req));await reserveFreeTest(env.DB,'text');
+  // Selected excerpts are processed transiently, never inserted into the public library.
+  return json(await generateBookTextPlan(env.AI,input));
+ }
+ if(path==='/api/book-text/image'&&method==='POST'){
+  const input=await body(req),shot=input.shot||{};
+  if(!input.title||String(input.title).length>600||!evaluateScope(input.title).allowed||!['generated_scene','comic_scene'].includes(shot.kind)||typeof shot.vo!=='string'||!shot.vo.trim()||shot.vo.length>400||typeof shot.visual!=='string'||!shot.visual.trim()||shot.visual.length>800)return fail('请先核对书名与分镜文字');
+  await reserveFreeTest(env.DB,'image');const result=await generateSceneImage(env.AI,shot,input.title);
+  return new Response(result.bytes,{headers:{'content-type':result.mime,'cache-control':'private, no-store'}});
+ }
  if(path==='/api/bootstrap'){
   const samples=await visibleSamples(env.DB), favorites=new Set((await results(env.DB,'SELECT product_key FROM favorites')).map(x=>x.product_key));const metadata=Object.fromEntries((await results(env.DB,"SELECT key,value FROM settings WHERE key LIKE 'sample-meta:%'")).map(r=>[r.key.slice(12),JSON.parse(r.value)]));const products=summarize(samples,favorites,metadata),snapshots=await results(env.DB,'SELECT * FROM snapshots ORDER BY captured_at DESC LIMIT 15');
   const currentSnapshotId=snapshots.find(x=>x.window_days===30)?.id||null;
@@ -210,6 +222,6 @@ async function api(req,env) {
  return fail('接口不存在',404);
 }
 export default {
- async fetch(req,env){try{let response;if(new URL(req.url).pathname.startsWith('/api/'))response=await api(req,env);else response=await env.ASSETS.fetch(req);const headers=new Headers(response.headers);headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','same-origin');headers.set('X-Frame-Options','DENY');headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.douyinpic.com https://*.ecombdimg.com https://*.byteimg.com; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");return new Response(response.body,{status:response.status,headers});}catch(e){console.error('Request failed',e.message);return fail('处理失败：'+e.message,400);}},
+ async fetch(req,env){try{let response;if(new URL(req.url).pathname.startsWith('/api/'))response=await api(req,env);else response=await env.ASSETS.fetch(req);const headers=new Headers(response.headers);headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','same-origin');headers.set('X-Frame-Options','DENY');headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://*.douyinpic.com https://*.ecombdimg.com https://*.byteimg.com; media-src 'self' blob:; connect-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");return new Response(response.body,{status:response.status,headers});}catch(e){console.error('Request failed',e.message);return fail('处理失败：'+e.message,400);}},
  async scheduled(controller,env,ctx){ctx.waitUntil(syncRun(env,'cron'));}
 };

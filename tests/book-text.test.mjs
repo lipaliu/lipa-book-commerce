@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {validateBookText,parseBookTextPlan,generateBookTextPlan} from '../server/book-text.mjs';
+const request={title:'道德经',duration:15,passages:[{page:8,file:'原书.pdf',text:'上善若水。水善利万物而不争，处众人之所恶，故几于道。'}]};
+const raw=JSON.stringify({shots:[{sourceId:'1',quote:'上善若水',vo:'水滋养万物。',visual:'山谷里溪水流过岩石。'},{sourceId:'1',quote:'水善利万物而不争',vo:'帮助别人，不必争先。',visual:'溪流缓缓滋养岸边的绿树。'}]});
+test('book passages preserve file-page provenance and exact quotes without needing a reference video',()=>{const input=validateBookText(request),plan=parseBookTextPlan(raw,input);assert.equal(plan.shots[0].source.page,8);assert.equal(plan.shots[0].source.file,'原书.pdf');assert.equal(plan.shots.reduce((n,s)=>n+s.seconds,0),15);assert.ok(plan.shots.every(s=>s.enabled));assert.throws(()=>parseBookTextPlan(raw.replace('上善若水','虚构引文'),input),/原文/);assert.throws(()=>parseBookTextPlan(raw.replace('"sourceId":"1"','"sourceId":"7"'),input),/原文/);});
+test('book-text creation rejects teaching, overlarge selections, invalid pages and empty sources',()=>{for(const change of [{title:'高考教辅'},{passages:[]},{passages:[{text:'内容',page:0}]},{passages:[{text:'字'.repeat(6001),page:1}]},{duration:13}])assert.throws(()=>validateBookText({...request,...change}));});
+test('book-text calls actual AI interface with selected excerpts, validates returned quotations',async()=>{let payload;const ai={run:async(model,input)=>{payload=input;return {response:raw};}};const plan=await generateBookTextPlan(ai,validateBookText(request));assert.equal(plan.shots.length,2);assert.match(payload.messages[1].content,/上善若水/);assert.match(payload.messages[0].content,/不是整本书/);await assert.rejects(()=>generateBookTextPlan(null,validateBookText(request)),/未连接/);});
+import {tidyBookText} from '../client/book-ocr.mjs';
+test('Chinese OCR spacing cleanup preserves line boundaries and Latin word spacing',()=>{assert.equal(tidyBookText('水 善 利 万 物 而 不 争 ，\nHello world\n上 善 若水。'),'水善利万物而不争，\nHello world\n上善若水。');});

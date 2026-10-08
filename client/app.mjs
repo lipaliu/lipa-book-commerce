@@ -1,3 +1,4 @@
+import {openBookReader,bookReaderBusy} from './book-reader.mjs';
 import {ownedBooks,saveOwnedBook} from './owned-library.mjs';
 import {newSimpleState,saveSimpleState,simpleStudioHtml,bookChoices,sampleFor} from './simple-studio.mjs';
 import {missingShotMedia} from './media-state.mjs';
@@ -135,6 +136,8 @@ async function simpleOpen(id){simple.view=await api('jobs/'+id+'/production');if
 async function simpleReload(){await simpleOpen(simple.view.pack.jobId);renderPage();}
 async function simpleBusy(task){if(simple.busy)return;simple.busy=true;simple.error='';renderPage();try{await task();}catch(e){simple.error=e.message;}finally{simple.busy=false;simple.progress='';renderPage();}}
 async function simpleAction(target){
+ if(bookReaderBusy()){toast('正在处理书页，请先暂停并等待本页完成');return true;}
+ if(target.dataset.ownedRead){await openBookReader(target.dataset.ownedRead,document.querySelector('#owned-reader'),api);return true;}
  if(target.dataset.ownedSearch){const b=ownedBooks().find(x=>x.id===target.dataset.ownedSearch);if(b){simple.ownedSearchTitle=b.title;simple.query=b.title;simple.library='online';simple.bookScope='all';simple.bookCategory='all';renderPage();}return true;}
 
  if(target.dataset.easyStage){if(simple.busy)return true;if(target.dataset.easyStage!=='book'&&!simple.sampleId)throw new Error('请先查看并选择一本书');if(target.dataset.easyStage==='format'&&!simple.sample?.body){const p=state.data.products.find(p=>p.samples.some(x=>x.id===simple.sampleId));const ready=p?.samples.find(x=>x.hasBody);if(ready)await simplePick(ready.id);}simple.setupStage=target.dataset.easyStage;if(simple.setupStage==='book')simple.bookDetail=false;simple.step='setup';renderPage();document.querySelector('.easy-title')?.scrollIntoView({block:'start'});return true;}
