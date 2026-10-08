@@ -1,3 +1,4 @@
+import {generateStudioPlan} from './studio.mjs';
 import {referenceRows,cleanReferenceEdits,suggestEdit} from './ai-editor.mjs';
 import {storeGenerated,serveGenerated} from './generated.mjs';
 import {storePreview,servePreview} from './preview.mjs';
@@ -42,7 +43,7 @@ async function api(req,env) {
  if(path==='/api/bootstrap'){
   const samples=await visibleSamples(env.DB), favorites=new Set((await results(env.DB,'SELECT product_key FROM favorites')).map(x=>x.product_key));const products=summarize(samples,favorites),snapshots=await results(env.DB,'SELECT * FROM snapshots ORDER BY captured_at DESC LIMIT 15');
   const currentSnapshotId=snapshots.find(x=>x.window_days===30)?.id||null;
-  return json({policy:POLICY,products,currentSnapshotId,stats:{products:products.length,samples:samples.length,bodies:samples.filter(x=>x.body).length,buyers:products.filter(x=>x.buyer?.available_distribution).length},snapshots,jobs:await results(env.DB,"SELECT j.*,json_extract(p.value,'$.sourceHash') AS productionHash FROM jobs j LEFT JOIN settings p ON p.key='production:'||j.id ORDER BY j.updated_at DESC"),syncRuns:await results(env.DB,'SELECT * FROM sync_runs ORDER BY requested_at DESC LIMIT 20'),integration:{huitun:'import_ready',automaticFetch:'not_connected',textGeneration:'structure_template',voice:env.AI?'test_api_ready':'not_connected',render:'browser_preview',settlement:'import_pending',production:'rule_storyboard_graphics',imageGeneration:env.AI?'test_api_ready':'not_connected',videoProviders:providers(env)}});
+  return json({policy:POLICY,products,currentSnapshotId,stats:{products:products.length,samples:samples.length,bodies:samples.filter(x=>x.body).length,buyers:products.filter(x=>x.buyer?.available_distribution).length},snapshots,jobs:await results(env.DB,"SELECT j.*,json_extract(p.value,'$.sourceHash') AS productionHash FROM jobs j LEFT JOIN settings p ON p.key='production:'||j.id ORDER BY j.updated_at DESC"),syncRuns:await results(env.DB,'SELECT * FROM sync_runs ORDER BY requested_at DESC LIMIT 20'),integration:{huitun:'import_ready',automaticFetch:'not_connected',textGeneration:env.AI?'ai_plan_ready':'not_connected',voice:env.AI?'test_api_ready':'not_connected',render:'browser_preview',settlement:'import_pending',production:'rule_storyboard_graphics',imageGeneration:env.AI?'test_api_ready':'not_connected',videoProviders:providers(env)}});
  }
  if(path.startsWith('/api/samples/')&&method==='GET'){
   const r=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(decodeURIComponent(path.split('/').pop())).first();if(!r||!evaluateScope(r.product,r.category).allowed)return fail('该参考不在非教辅候选范围',404);return json({...r,briefOptions:buildBriefOptions(r),buyer:r.buyer_json?JSON.parse(r.buyer_json):null});
@@ -74,6 +75,23 @@ async function api(req,env) {
   const id='reference-'+s.id;
   await env.DB.prepare("INSERT INTO jobs(id,sample_id,product_key,title,status,template,brief_json,script,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status='draft',updated_at=excluded.updated_at").bind(id,s.id,s.product_key,s.product,'draft',brief.template,JSON.stringify(brief),script,stamp,stamp).run();
   return json({id});
+ }
+ if(path==='/api/studio/plan'&&method==='POST'){
+  const input=await body(req);const sample=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(String(input.sampleId)).first();
+  if(!sample||!evaluateScope(sample.product,sample.category).allowed)return fail('该商品不在非教辅范围');
+  const options=buildBriefOptions(sample),audience={};
+  for(const [key,list] of [['genderId',options.audience?.genders],['ageId',options.audience?.ages]]){
+   if(input[key]){const selected=list?.find(x=>x.id===input[key]);if(!selected)return fail('人群选项不属于此商品');audience[key]=selected;}
+  }
+  const plan=await generateStudioPlan(env.AI,sample,input,audience);
+  const id=crypto.randomUUID(),stamp=now(),brief={mode:'reference',template:plan.format.template,task:'AI默认方案',studio:{mode:plan.mode,formatId:plan.format.id,duration:plan.duration,audience,model:plan.model,excerpt:plan.excerpt||false,excerptNote:plan.excerptNote||null,sourceFrames:plan.sourceFrames||[]}};
+  const script=plan.shots.map(s=>s.vo).join('\n\n');
+  const job={id,script,brief_json:JSON.stringify(brief)};
+  const choices={durationSeconds:plan.duration,format:'mixed',scriptLocked:false,narrationOverride:plan.shots.slice(0,4).map(s=>s.vo).join('\n\n'),shots:plan.shots.map((s,i)=>({...s,id:i<4?'shot-'+(i+1):'extra-'+(i-3),enabled:true,includeVO:true})),extraShots:plan.shots.slice(4).map((s,i)=>({...s,id:'extra-'+(i+1),purpose:'补充内容'}))};
+  // Validate the full plan before storing a job, so invalid AI output leaves no broken task.
+  buildProduction(job,sample,brief,choices);
+  await env.DB.prepare('INSERT INTO jobs(id,sample_id,product_key,title,status,template,brief_json,script,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id,sample.id,sample.product_key,sample.product,'draft',brief.template,JSON.stringify(brief),script,stamp,stamp).run();
+  await writeProduction(env,job,sample,brief,choices);return json({id,model:plan.model});
  }
  if(path==='/api/jobs'&&method==='POST'){
   const input=await body(req);const s=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(String(input.sampleId)).first();if(!s||!evaluateScope(s.product,s.category).allowed)return fail('教辅或无效商品不能进入制作');
