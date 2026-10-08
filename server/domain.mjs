@@ -1,5 +1,5 @@
 export const POLICY = Object.freeze({refreshIntervalDays:1,lookbackDays:30,excludeTeaching:true,timezone:'Asia/Shanghai',dailyTime:'09:00'});
-const blocked = /教辅|教材|辅导|同步训练|同步练习|练习册|试卷|题库|习题|刷题|真题|模拟题|备考|题解|学霸速记|学霸笔记|考点|押题|中考|高考|考研|考公|公务员|行测|申论|描红|控笔|字帖|练字|考级|月考|领跑卷|提分|必考|培优|总复习|幼小衔接|看图说话|看图写话|写作训练|写作提升|作文素材|默写|拼音|识字|语法|单词|助力教学/;
+const blocked = /教辅|教材|课本|满分作文|作文金句|仿写训练|数学思维训练|趣味练习|数感训练|辅导|同步训练|同步练习|练习册|试卷|题库|习题|刷题|真题|模拟题|备考|题解|学霸速记|学霸笔记|考点|押题|中考|高考|考研|考公|公务员|行测|申论|描红|控笔|字帖|练字|考级|月考|领跑卷|提分|必考|培优|总复习|幼小衔接|看图说话|看图写话|写作训练|写作提升|作文素材|默写|拼音|识字|语法|单词|助力教学/;
 export function evaluateScope(product,category='') {
   if(!product || typeof product!=='string' || product.length>600) return {allowed:false,reason:'缺少有效商品名称'};
   if(/知识服务|网课|视频课程|读书卡|会员课程/.test(product)) return {allowed:false,reason:'非实体图书或知识服务'};

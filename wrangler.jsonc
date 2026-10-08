@@ -24,6 +24,7 @@
   "vars": {
     "APP_NAME": "图书带货工作台",
     "DATA_PROVIDER": "huitun_import",
-    "LOOKBACK_DAYS": "30"
+    "LOOKBACK_DAYS": "30",
+    "DAILY_BROWSER_REFRESH": "scheduled"
   }
 }
