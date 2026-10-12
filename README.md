@@ -16,7 +16,7 @@
 
 ## 本地开发
 
-需要Node.js 22或更新版本及npm。
+需要Node.js 22或更新版本、npm及curl（媒体恢复使用系统网络代理配置）。
 
 ```sh
 npm ci
