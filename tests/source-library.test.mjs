@@ -1,0 +1,7 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {sourceMediaResponse} from '../server/source-library.mjs';
+const files={demo:{size:10,mime:'video/mp4',parts:[{url:'/a',start:0,size:4},{url:'/b',start:4,size:6}]}};
+const assets={fetch:async req=>new Response(new URL(req.url).pathname==='/a'?'0123':'456789')};
+const request=(range,method='GET')=>new Request('https://site/api/source-media/demo.mp4',{method,headers:range?{Range:range}:{}});
+test('original bytes stream intact across asset parts',async()=>{const r=await sourceMediaResponse(request(),assets,files);assert.equal(r.status,200);assert.equal(await r.text(),'0123456789');});
+test('range, suffix and HEAD preserve original offsets',async()=>{let r=await sourceMediaResponse(request('bytes=2-7'),assets,files);assert.equal(r.status,206);assert.equal(r.headers.get('content-range'),'bytes 2-7/10');assert.equal(await r.text(),'234567');r=await sourceMediaResponse(request('bytes=-3'),assets,files);assert.equal(await r.text(),'789');r=await sourceMediaResponse(request('bytes=8-','HEAD'),assets,files);assert.equal(r.headers.get('content-length'),'2');assert.equal(await r.text(),'');});
+test('invalid ranges reject instead of returning wrong media',async()=>{for(const range of ['bytes=12-','bytes=6-2','bytes=0-2,5-8','bytes=-0'])assert.equal((await sourceMediaResponse(request(range),assets,files)).status,416);});

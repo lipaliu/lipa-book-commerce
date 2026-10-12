@@ -7,7 +7,8 @@
     "build": "node scripts/build.mjs",
     "dev": "wrangler dev --port 8787",
     "test": "node --test tests/*.test.mjs",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "media:restore": "node scripts/restore-media.mjs"
   },
   "dependencies": {
     "@tesseract.js-data/chi_sim": "^1.0.0",

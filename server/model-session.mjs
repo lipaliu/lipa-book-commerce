@@ -1,0 +1,8 @@
+const name='__Host-book-model';const age=30*86400;
+const b64=x=>btoa(String.fromCharCode(...x)).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
+const bytes=x=>Uint8Array.from(atob(x.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0));
+async function aes(secret){return crypto.subtle.importKey('raw',await crypto.subtle.digest('SHA-256',new TextEncoder().encode('book-model-session:v1|'+secret)),{name:'AES-GCM'},false,['encrypt','decrypt']);}
+export async function sessionCookie(config,secret){if(!secret)throw Error('连接保存尚未配置');const iv=crypto.getRandomValues(new Uint8Array(12));const data=new TextEncoder().encode(JSON.stringify({...config,expires:Date.now()+age*1000}));const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},await aes(secret),data);const token=b64(iv)+'.'+b64(new Uint8Array(ct));if(token.length>3800)throw Error('密钥过长，请使用临时连接');return `${name}=${token}; Path=/; Max-Age=${age}; Secure; HttpOnly; SameSite=Strict`;}
+export async function readModelSession(req,secret){try{if(!secret)return null;const token=(req.headers.get('cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(name+'='))?.slice(name.length+1);if(!token)return null;const [iv,ct]=token.split('.');const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes(iv)},await aes(secret),bytes(ct));const value=JSON.parse(new TextDecoder().decode(plain));return value.expires>Date.now()?value:null;}catch{return null;}}
+export const clearModelCookie=()=>`${name}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict`;
+export const publicConnection=s=>s?{provider:s.provider,model:s.model,resolution:s.resolution,remembered:true,expires:s.expires}:null;

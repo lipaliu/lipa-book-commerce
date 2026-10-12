@@ -1,0 +1,10 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {filmPlan,filmClips,filmSignature} from '../client/film-plan.mjs';
+test('default final output never falls back to original even for old drafts marked reuse',()=>{
+ const rows=[{id:'a',included:true,seconds:10,outputMode:'original'},{id:'b',included:false,seconds:8},{id:'c',included:true,seconds:5,video:new Blob(['new']),videoKind:'model'},{id:'d',included:true,seconds:10}];
+ const plan=filmPlan(rows,()=>true);assert.deepEqual(plan.rows.map(r=>r.id),['a','c','d']);assert.equal(plan.seconds,25);assert.deepEqual(plan.needsGeneration,['a','d']);assert.deepEqual(plan.missingOriginal,[]);
+ assert.throws(()=>filmClips(plan,()=>({url:'source.mp4'})),/不能用原片/);
+ for(const r of plan.rows){r.video=new Blob([r.id]);r.videoKind='model';}
+ let sourceCalls=0;const clips=filmClips(plan,()=>{sourceCalls++;return {url:'source.mp4'};});assert.equal(sourceCalls,0);assert.equal(clips.length,3);assert.ok(clips.every(c=>c.blob&&!c.url&&c.start===0));assert.throws(()=>filmPlan([],()=>true));
+});
+test('only explicit selected-source export permits original footage, and missing original is reported',()=>{const rows=[{id:'a',included:true,seconds:10,outputMode:'original'},{id:'b',included:true,seconds:5,video:new Blob(['new']),videoKind:'model'}];const plan=filmPlan(rows,()=>true,{allowOriginal:true});assert.deepEqual(plan.needsGeneration,[]);const clips=filmClips(plan,()=>({url:'source.mp4',start:15}));assert.equal(clips[0].url,'source.mp4');assert.equal(clips[1].blob,rows[1].video);assert.deepEqual(filmPlan(rows,()=>false,{allowOriginal:true}).missingOriginal,['a']);});
+test('changing inclusion, order, duration or video mode marks old complete video stale',()=>{const row={id:'a',included:true,seconds:10,outputMode:'original',start:0,end:10};const original=filmSignature({rows:[row]});for(const changes of [{seconds:5},{included:false},{outputMode:'generate'}])assert.notEqual(filmSignature({rows:[{...row,...changes}]}),original);});

@@ -5,3 +5,13 @@ dist/
 *.credentials.json
 seed.sql
 verification/
+
+# Local media and operational evidence stay outside Git. Restore media via manifest.
+client/source-bytes/
+client/reference-videos/
+artifacts/
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log

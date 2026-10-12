@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {providerReason,generationError} from '../shared/model-errors.mjs';
+test('403 reports actual reason without claiming missing model access',()=>{assert.equal(providerReason({error:{message:'balance exceeded'}}),'balance exceeded');assert.match(generationError(403,'balance exceeded'),/balance exceeded/);assert.ok(!generationError(403).includes('未开通'));});
+test('provider errors redact exact key, bearer token and URLs',()=>{const s=providerReason({message:'secret-value Bearer abc sk-test123 https://service/path?token=x'},'secret-value');assert.ok(!s.includes('secret-value')&&!s.includes('abc')&&!s.includes('test123')&&!s.includes('token='));});

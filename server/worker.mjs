@@ -1,3 +1,15 @@
+import {validateQuickVO,quickVOPlan} from './quick-vo.mjs';
+import {hostedRecognitionRoute} from './hosted-recognition.mjs';
+import {readModelSession,clearModelCookie,publicConnection} from './model-session.mjs';
+import {sourceMediaResponse} from './source-library.mjs';
+import {savedTranscript,transcriptAnalysisRoute} from './transcript-analysis.mjs';
+import {understandingAI,analysisCapabilities} from './understanding.mjs';
+import {clipAnalysisRoute} from './clip-analysis.mjs';
+import {clipModelRoute} from './clip-model.mjs';
+import {referenceVideoResponse} from './reference-video-response.mjs';
+import {referenceVideos} from './reference-video-data.mjs';
+import {timedReferences} from './timed-reference-data.mjs';
+import {timedFrames} from './timed-frame-data.mjs';
 import {rankReferences,analyzeReferenceDirections} from './reference-research.mjs';
 import {generateStudioPlan} from './studio.mjs';
 import {validateBookText,generateBookTextPlan} from './book-text.mjs';
@@ -17,7 +29,7 @@ async function hash(text){return [...new Uint8Array(await crypto.subtle.digest('
 async function body(req){if(Number(req.headers.get('content-length')||0)>6_000_000)throw new Error('文件过大，请控制在6MB以内');const text=await req.text();if(text.length>6_000_000)throw new Error('文件过大');return JSON.parse(text);}
 async function results(db,sql,...args){return (await db.prepare(sql).bind(...args).all()).results;}
 async function visibleSamples(db){return (await results(db,'SELECT * FROM samples')).filter(r=>evaluateScope(r.product,r.category).allowed);}
-function summarize(samples,favorites,metadata={}){const groups=new Map();for(const r of samples){if(!groups.has(r.product_key))groups.set(r.product_key,{key:r.product_key,product:r.product,category:r.category,samples:[],buyer:null,sourceWindows:[],favorite:favorites.has(r.product_key)});const p=groups.get(r.product_key);p.samples.push({...metadata[r.id],id:r.id,account:r.account,salesBand:r.sales_band,volumeBand:r.volume_band,videoId:r.video_id,hasBody:!!r.body,hasFrames:referenceRows(r).some(f=>f.imageUrl),buyerAvailable:buildBriefOptions(r).ready,publishedAt:r.published_at,snapshotId:r.snapshot_id});if(r.buyer_json)p.buyer=JSON.parse(r.buyer_json);if(!p.sourceWindows.includes(r.source_window))p.sourceWindows.push(r.source_window);}
+function summarize(samples,favorites,metadata={}){const groups=new Map();for(const r of samples){if(!groups.has(r.product_key))groups.set(r.product_key,{key:r.product_key,product:r.product,category:r.category,samples:[],buyer:null,sourceWindows:[],favorite:favorites.has(r.product_key)});const p=groups.get(r.product_key);p.samples.push({...metadata[r.id],id:r.id,account:r.account,salesBand:r.sales_band,volumeBand:r.volume_band,videoId:r.video_id,hasBody:!!r.body,hasOriginal:!!referenceVideos[r.id],hasTimedTranscript:!!savedTranscript(r.id),hasFrames:referenceRows(r).some(f=>f.imageUrl),buyerAvailable:buildBriefOptions(r).ready,publishedAt:r.published_at,snapshotId:r.snapshot_id});if(r.buyer_json)p.buyer=JSON.parse(r.buyer_json);if(!p.sourceWindows.includes(r.source_window))p.sourceWindows.push(r.source_window);}
 return [...groups.values()].map(p=>{p.samples.sort((a,b)=>(salesLower(b.salesBand)||0)-(salesLower(a.salesBand)||0));return {...p,identity:p.buyer?.product_id?'已匹配商品ID，ISBN待核':'按商品名称分组，SKU待核',bestSalesBand:p.samples[0]?.salesBand||'未知'};}).sort((a,b)=>(salesLower(b.bestSalesBand)||0)-(salesLower(a.bestSalesBand)||0));}
 async function syncRun(env,source='manual') {
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date());
@@ -39,17 +51,44 @@ async function readProduction(env,id){const {job,sample}=await storedJob(env,id)
  return {pack:{...pack,referenceRows:referenceRows(sample),referenceEdits:edits?JSON.parse(edits.value):[],localRender,generated,savedPreview,stale:pack.sourceHash!==await productionHash(job)},job,sample};}
 async function api(req,env) {
  const url=new URL(req.url),path=url.pathname,method=req.method;
+ if(path.startsWith('/api/source-media/'))return sourceMediaResponse(req,env.ASSETS);
  if(path==='/api/health')return json({ok:true,app:'图书带货工作台',version:'0.1.0'});
  if(!env.DB)return fail('数据库尚未配置',503);
  if(method!=='GET' && req.headers.get('Origin')!==url.origin)return fail('请求来源不一致',403);
+ if(path==='/api/model-session'){if(method==='GET')return json({connection:publicConnection(await readModelSession(req,(env.MODEL_SESSION_SECRET||env.SESSION_SECRET)))});if(method==='DELETE')return json({disconnected:true},200,{'set-cookie':clearModelCookie()});return fail('方法不支持',405);}
+ if(path.startsWith('/api/clip-model/')&&!req.headers.get('X-Video-Api-Key')){const session=await readModelSession(req,(env.MODEL_SESSION_SECRET||env.SESSION_SECRET));if(session){const headers=new Headers(req.headers);headers.set('X-Video-Api-Key',session.key);req=new Request(req,{headers});}}
+ const modelSession=await readModelSession(req,(env.MODEL_SESSION_SECRET||env.SESSION_SECRET));if(modelSession?.provider==='toapis')env={...env,TOAPIS_TEXT_KEY:modelSession.key};
+ if(path==='/api/understanding-policy'&&method==='GET'){const ai=understandingAI(env);return json({priority:['volcengine','alibaba'],textModel:ai.model,textProvider:ai.provider,textReason:ai.provider==='alibaba'?'火山理解模型未配置，当前使用阿里Qwen':'已配置火山理解模型'});}
+ if(path==='/api/clip-model/vo-plan'&&method==='POST'){const raw=await body(req),input=validateQuickVO(raw);const key=raw.provider==='toapis'?req.headers.get('X-Video-Api-Key'):null;if(key)env={...env,TOAPIS_TEXT_KEY:key};if(!env.TOAPIS_TEXT_KEY&&!env.ARK_API_KEY)await reserveFreeTest(env.DB,'text');return json(await quickVOPlan(understandingAI(env),input));}
+ if(path==='/api/clip-model/analysis-capabilities'&&method==='POST'){const key=req.headers.get('X-Video-Api-Key');if(!key||key.length<12||key.length>4096||/\s/.test(key))return fail('请先连接ToAPIs账号');return json(await analysisCapabilities(key,fetch,true));}
+ if(['/api/clip-transcript-analysis','/api/clip-model/transcript-analysis'].includes(path)&&method==='POST')return transcriptAnalysisRoute(req,req.headers.get('X-Video-Api-Key')?{...env,TOAPIS_TEXT_KEY:req.headers.get('X-Video-Api-Key')}:env);
+ if(path==='/api/clip-model/analyze-hosted'&&method==='POST')return hostedRecognitionRoute(req,env);
+ if(path==='/api/clip-model/analyze')return clipAnalysisRoute(req,env);
+ if(path.startsWith('/api/clip-model/')&&path!=='/api/clip-model/assist')return clipModelRoute(req,env);
+ if(path==='/api/clip-source'&&method==='GET'){
+  const id=url.searchParams.get('id'),sample=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(id).first();
+  if(!sample||!evaluateScope(sample.product,sample.category).allowed)return fail('该参考不可用于制作');
+  const source=savedTranscript(id);return json({sampleId:id,title:sample.product,account:sample.account,videoId:sample.video_id,body:sample.body||'',duration:source?.duration||null,available:!!referenceVideos[id],canAnalyzeTranscript:!!(referenceVideos[id]&&source?.segments?.length),publishedAt:sample.published_at,sourceWindow:sample.source_window,rows:[],framesAvailable:!!timedFrames[id]?.length,referenceVideo:referenceVideos[id]||null,providers:providers(env)});
+ }
+ if(['/api/clip-assist','/api/clip-model/assist'].includes(path)&&method==='POST'){
+  if(req.headers.get('X-Video-Api-Key'))env={...env,TOAPIS_TEXT_KEY:req.headers.get('X-Video-Api-Key')};
+  const input=await body(req),sample=await env.DB.prepare('SELECT * FROM samples WHERE id=?').bind(String(input.sampleId)).first();
+  if(!sample||!evaluateScope(sample.product,sample.category).allowed)return fail('参考不存在');
+  const seconds=Number(input.seconds);if(!Number.isFinite(seconds)||seconds<.5||seconds>1800)return fail('本段输出时长需为0.5至1800秒');
+  if(!env.TOAPIS_TEXT_KEY&&!env.ARK_API_KEY)await reserveFreeTest(env.DB,'text');return json(await suggestEdit(understandingAI(env),{...input,seconds,title:sample.product,originalText:String(input.originalText||'').slice(0,2500)}));
+ }
+ if(path==='/api/clip-voice'&&method==='POST'){
+  const input=await body(req);if(typeof input.text!=='string'||!input.text.trim()||input.text.length>400)return fail('单段旁白需要1至400字');
+  try{await reserveFreeTest(env.DB,'voice');}catch{return fail('AI新配音的测试额度已用完；这不是ToAPIs视频余额。可点“恢复原文并沿用原声”继续生成视频，已生成的视频与草稿均保留。',429);}const result=await generateVoice(env.AI,input.text);return new Response(result.bytes,{headers:{'content-type':result.mime,'cache-control':'private, no-store'}});
+ }
  if(path==='/api/book-text/plan'&&method==='POST'){
-  const input=validateBookText(await body(req));await reserveFreeTest(env.DB,'text');
+  const input=validateBookText(await body(req));if(!env.TOAPIS_TEXT_KEY&&!env.ARK_API_KEY)await reserveFreeTest(env.DB,'text');
   // Selected excerpts are processed transiently, never inserted into the public library.
-  return json(await generateBookTextPlan(env.AI,input));
+  return json(await generateBookTextPlan(understandingAI(env),input));
  }
  if(path==='/api/book-text/image'&&method==='POST'){
   const input=await body(req),shot=input.shot||{};
-  if(!input.title||String(input.title).length>600||!evaluateScope(input.title).allowed||!['generated_scene','comic_scene'].includes(shot.kind)||typeof shot.vo!=='string'||!shot.vo.trim()||shot.vo.length>400||typeof shot.visual!=='string'||!shot.visual.trim()||shot.visual.length>800)return fail('请先核对书名与分镜文字');
+  if(!input.title||String(input.title).length>600||!evaluateScope(input.title).allowed||!['generated_scene','comic_scene'].includes(shot.kind)||typeof shot.vo!=='string'||shot.vo.length>400||typeof shot.visual!=='string'||!shot.visual.trim()||shot.visual.length>800)return fail('请先核对书名与分镜文字');
   await reserveFreeTest(env.DB,'image');const result=await generateSceneImage(env.AI,shot,input.title);
   return new Response(result.bytes,{headers:{'content-type':result.mime,'cache-control':'private, no-store'}});
  }
@@ -76,7 +115,7 @@ async function api(req,env) {
   const signature=await hash(JSON.stringify(rows.map(r=>[r.id,r.body,r.captured_at]))),cacheKey='directions:'+key;
   const saved=await env.DB.prepare('SELECT value FROM settings WHERE key=?').bind(cacheKey).first();let analysis=saved?JSON.parse(saved.value):null;
   if(analysis?.signature!==signature)analysis=null;
-  if(method==='POST'&&!analysis){await reserveFreeTest(env.DB,'text');analysis={...await analyzeReferenceDirections(env.AI,rows),signature,createdAt:now()};await env.DB.prepare('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)').bind(cacheKey,JSON.stringify(analysis)).run();}
+  if(method==='POST'&&!analysis){if(!env.TOAPIS_TEXT_KEY&&!env.ARK_API_KEY)await reserveFreeTest(env.DB,'text');analysis={...await analyzeReferenceDirections(understandingAI(env),rows),signature,createdAt:now()};await env.DB.prepare('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)').bind(cacheKey,JSON.stringify(analysis)).run();}
   return json({productKey:key,product:rows[0].product,target:10,total:rows.length,bodyCount:rows.filter(r=>r.body).length,analysis,references:rows.map(r=>({...metadata[r.id],id:r.id,account:r.account,salesBand:r.sales_band,volumeBand:r.volume_band,publishedAt:r.published_at,capturedAt:r.captured_at,windowDays:r.source_window,videoId:r.video_id,body:r.body||'',analysis:r.analysis||'',imageUrl:metadata[r.id]?.imageUrl||referenceRows(r).find(f=>f.imageUrl)?.imageUrl||null}))});
  }
  if(path==='/api/favorites'&&method==='POST'){const {key,active}=await body(req);const r=await env.DB.prepare('SELECT product FROM samples WHERE product_key=? LIMIT 1').bind(String(key)).first();if(!r)return fail('商品不存在',404);await env.DB.prepare(active?'INSERT OR IGNORE INTO favorites(product_key,created_at) VALUES(?,?)':'DELETE FROM favorites WHERE product_key=?').bind(...(active?[key,now()]:[key])).run();return json({ok:true});}
@@ -117,8 +156,8 @@ async function api(req,env) {
   for(const [key,list] of [['genderId',options.audience?.genders],['ageId',options.audience?.ages]]){
    if(input[key]){const selected=list?.find(x=>x.id===input[key]);if(!selected)return fail('人群选项不属于此商品');audience[key]=selected;}
   }
-  if(input.mode!=='reference'||input.adaptReference===true)await reserveFreeTest(env.DB,'text');
-  const plan=await generateStudioPlan(env.AI,sample,input,audience);
+  if(input.mode!=='reference'||input.adaptReference===true)if(!env.TOAPIS_TEXT_KEY&&!env.ARK_API_KEY)await reserveFreeTest(env.DB,'text');
+  const plan=await generateStudioPlan(understandingAI(env),sample,input,audience);
   const id=crypto.randomUUID(),stamp=now(),brief={mode:'reference',template:plan.format.template,task:'AI默认方案',studio:{mode:plan.mode,formatId:plan.format.id,duration:plan.duration,audience,model:plan.model,excerpt:plan.excerpt||false,excerptNote:plan.excerptNote||null,sourceFrames:plan.sourceFrames||[]}};
   const script=plan.shots.map(s=>s.vo).join('\n\n');
   const job={id,script,brief_json:JSON.stringify(brief)};
@@ -145,15 +184,15 @@ async function api(req,env) {
   await env.DB.prepare('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)').bind('reference-edits:'+id,JSON.stringify(edits)).run();return json({edits});
  }
  if(/^\/api\/jobs\/[^/]+\/ai-edit$/.test(path)&&method==='POST'){
-  if(!env.AI)return fail('文本模型尚未连接',503);
+  if(!env.AI&&!env.ARK_API_KEY)return fail('文本模型尚未连接',503);
   const id=path.split('/')[3],{sample,pack}=await readProduction(env,id),input=await body(req);
   if(!pack)return fail('请先建立制作方案');
   const source=input.referenceId?referenceRows(sample).find(r=>r.id===input.referenceId):pack.shots.find(r=>r.id===input.shotId);
   if(!source)return fail('需要有效的参考段落或分镜');
   if(!['vo','visual'].includes(input.field)||String(input.currentText??'').length>2500||String(input.narration??'').length>2500||String(input.instruction??'').length>300)return fail('编辑内容或要求过长');
   const seconds=Number(input.seconds??5);if(!Number.isFinite(seconds)||seconds<0.5||seconds>30)return fail('请输入0.5至30秒');
-  await reserveFreeTest(env.DB,'text');
-  const suggestion=await suggestEdit(env.AI,{...input,seconds,title:pack.title,originalText:input.referenceId?source.text:(sample.body||'').slice(0,2000)});
+  if(!env.TOAPIS_TEXT_KEY&&!env.ARK_API_KEY)await reserveFreeTest(env.DB,'text');
+  const suggestion=await suggestEdit(understandingAI(env),{...input,seconds,title:pack.title,originalText:input.referenceId?source.text:(sample.body||'').slice(0,2000)});
   const suggestionId=crypto.randomUUID();await env.DB.prepare('INSERT INTO settings(key,value) VALUES(?,?)').bind('ai-edit:'+suggestionId,JSON.stringify({...suggestion,jobId:id,sourceId:source.id,sourceText:input.currentText||''})).run();return json({...suggestion,id:suggestionId});
  }
  if(/^\/api\/jobs\/[^/]+\/previews$/.test(path)&&method==='POST'){
@@ -222,6 +261,6 @@ async function api(req,env) {
  return fail('接口不存在',404);
 }
 export default {
- async fetch(req,env){try{let response;if(new URL(req.url).pathname.startsWith('/api/'))response=await api(req,env);else response=await env.ASSETS.fetch(req);const headers=new Headers(response.headers);headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','same-origin');headers.set('X-Frame-Options','DENY');headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://*.douyinpic.com https://*.ecombdimg.com https://*.byteimg.com; media-src 'self' blob:; connect-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");return new Response(response.body,{status:response.status,headers});}catch(e){console.error('Request failed',e.message);return fail('处理失败：'+e.message,400);}},
+ async fetch(req,env){try{let response;if(new URL(req.url).pathname.startsWith('/api/'))response=await api(req,env);else if(new URL(req.url).pathname.startsWith('/reference-videos/'))response=await referenceVideoResponse(req,env.ASSETS);else response=await env.ASSETS.fetch(req);const headers=new Headers(response.headers);headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','same-origin');headers.set('X-Frame-Options','DENY');headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://*.douyinpic.com https://*.ecombdimg.com https://*.byteimg.com; media-src 'self' blob:; connect-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");return new Response(response.body,{status:response.status,headers});}catch(e){console.error('Request failed',e.message);return fail('处理失败：'+e.message,400);}},
  async scheduled(controller,env,ctx){ctx.waitUntil(syncRun(env,'cron'));}
 };

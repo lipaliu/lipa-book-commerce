@@ -132,5 +132,95 @@ export const referenceData={
       "visual": "原视频抽帧，仅作画面参考",
       "kind": "comic_scene"
     }
+  ],
+  "row-b250608ad444a62d6f47e1094364b0b9bf4f0c1e1d3d2766ee8220b66b8e9dc8": [
+    {
+      "id": "ref-1",
+      "start": 0,
+      "end": 6,
+      "imageUrl": "/reference-frames/D60-0671-0s.jpg",
+      "text": "儿子已经十一点了明天还要上课出去别烦我",
+      "transcriptStart": 1.52,
+      "transcriptEnd": 4.92,
+      "visual": "男孩低头看手机，脸被屏幕照亮；定点抽帧与机器转写待校对，非逐镜切点",
+      "kind": "generated_scene"
+    },
+    {
+      "id": "ref-2",
+      "start": 6,
+      "end": 15,
+      "imageUrl": "/reference-frames/D60-0671-6s.jpg",
+      "text": "",
+      "transcriptStart": 6,
+      "transcriptEnd": 15,
+      "visual": "母亲近景，情绪低落；定点抽帧与机器转写待校对，非逐镜切点；本段未可靠识别出旁白，文字留空待听音核对",
+      "kind": "generated_scene"
+    },
+    {
+      "id": "ref-3",
+      "start": 15,
+      "end": 30,
+      "imageUrl": "/reference-frames/D60-0671-15s.jpg",
+      "text": "",
+      "transcriptStart": 15,
+      "transcriptEnd": 30,
+      "visual": "男孩看向手中的书；定点抽帧与机器转写待校对，非逐镜切点；本段未可靠识别出旁白，文字留空待听音核对",
+      "kind": "generated_scene"
+    },
+    {
+      "id": "ref-4",
+      "start": 30,
+      "end": 47,
+      "imageUrl": "/reference-frames/D60-0671-30s.jpg",
+      "text": "",
+      "transcriptStart": 30,
+      "transcriptEnd": 47,
+      "visual": "实拍书页，书旁有花朵装饰；定点抽帧与机器转写待校对，非逐镜切点；本段未可靠识别出旁白，文字留空待听音核对",
+      "kind": "real_product"
+    },
+    {
+      "id": "ref-5",
+      "start": 47,
+      "end": 68,
+      "imageUrl": "/reference-frames/D60-0671-47s.jpg",
+      "text": "当孩子沉迷手机看不到读书意义的时候一定要给他看人民日报点醒孩子的60封信看完这些信孩子就会明白游戏可以重开人生却不能重来关掉的是手机打开的是前途父母能照顾你一阵子但是照顾不了你一辈子",
+      "transcriptStart": 47.699999999999996,
+      "transcriptEnd": 68.38,
+      "visual": "男孩低头落泪的近景；定点抽帧与机器转写待校对，非逐镜切点",
+      "kind": "generated_scene"
+    },
+    {
+      "id": "ref-6",
+      "start": 68,
+      "end": 85,
+      "imageUrl": "/reference-frames/D60-0671-68s.jpg",
+      "text": "学习是为了拥有选择的权利多考几分不一定能够改变人生但分数背后透出来的努力却是伴随一生的好习惯在点醒孩子的同时呢让他懂得理解父母的不容易别把最坏的脾气",
+      "transcriptStart": 68.38,
+      "transcriptEnd": 85.4,
+      "visual": "实拍书页，以手指示正文；定点抽帧与机器转写待校对，非逐镜切点",
+      "kind": "real_product"
+    },
+    {
+      "id": "ref-7",
+      "start": 85,
+      "end": 101,
+      "imageUrl": "/reference-frames/D60-0671-85s.jpg",
+      "text": "留给最亲的人请轻一点叛逆慢一点远离世间的温柔记得给父母留一份你说每一家的书架上不应该有一本这个书吗每天两页点醒孩子给孩子的生活",
+      "transcriptStart": 85.4,
+      "transcriptEnd": 101.34,
+      "visual": "实拍书页，用笔指示段落；定点抽帧与机器转写待校对，非逐镜切点",
+      "kind": "real_product"
+    },
+    {
+      "id": "ref-8",
+      "start": 101,
+      "end": 115.57,
+      "imageUrl": "/reference-frames/D60-0671-101s.jpg",
+      "text": "引入一份亮光有些话家长说一百遍不如让孩子自己读一遍六十封写给孩子的信温柔点醒迷茫少年与其反复争吵不如让这些信替你跟孩子好好聊聊好",
+      "transcriptStart": 101.34,
+      "transcriptEnd": 115.54,
+      "visual": "实拍书页，手指指向段落；定点抽帧与机器转写待校对，非逐镜切点",
+      "kind": "real_product"
+    }
   ]
 };
